@@ -125,7 +125,7 @@ sudo usermod -aG dialout $USER
 
 ---
 
-### Windows 11
+### Microsoft Windows 11
 
 #### Prerequisites
 
