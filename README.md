@@ -219,4 +219,4 @@ only when the file is new or empty.
 
 ## License
 
-Released under the MIT License. See source files for details.
+Released under the MIT License. See LICENSE file for details.
