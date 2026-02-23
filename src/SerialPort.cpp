@@ -174,13 +174,15 @@ int SerialPort::Read(uint8_t* buf, int maxLen)
 
 std::string SerialPort::ReadLine(uint8_t terminator, int maxBytes)
 {
+    m_lastError.clear();    // clear stale error; genuine errors set it below
     std::string line;
     line.reserve(32);
     uint8_t ch;
     while ((int)line.size() < maxBytes)
     {
         int n = Read(&ch, 1);
-        if (n <= 0) break;
+        if (n < 0) return line;     // error already stored in m_lastError
+        if (n == 0) break;          // timeout — m_lastError stays empty
         if (ch == terminator) break;
         line += (char)ch;
     }
@@ -210,7 +212,7 @@ void SerialPort::SetError(const std::string& msg)
   #include <CoreFoundation/CoreFoundation.h>
 #endif
 
-SerialPort::SerialPort() : m_fd(-1), m_open(false) {}
+SerialPort::SerialPort() : m_fd(-1), m_timeoutMs(1000), m_open(false) {}
 SerialPort::~SerialPort() { Close(); }
 
 // ---------- POSIX port enumeration ----------
@@ -336,6 +338,7 @@ bool SerialPort::Open(const std::string& device, int baudRate,
                       int dataBits, int stopBits, char parity, int timeoutMs)
 {
     Close();
+    m_timeoutMs = timeoutMs;    // fix #7: store for use in ReadLine()
 
     m_fd = ::open(device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (m_fd < 0)
@@ -344,7 +347,7 @@ bool SerialPort::Open(const std::string& device, int baudRate,
         return false;
     }
 
-    // Switch to blocking mode with timeout
+    // Switch to blocking mode; timing is handled by select() in ReadLine
     int flags = fcntl(m_fd, F_GETFL, 0);
     fcntl(m_fd, F_SETFL, flags & ~O_NONBLOCK);
 
@@ -396,18 +399,18 @@ bool SerialPort::Open(const std::string& device, int baudRate,
         tty.c_iflag &= ~INPCK;
     }
 
-    // Raw mode
+    // Raw mode — no canonical processing, no signals, no software flow
     tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     tty.c_iflag &= ~(IXON | IXOFF | IXANY);
     tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
     tty.c_oflag &= ~OPOST;
 
-    // VMIN / VTIME — block until at least 1 byte or timeout
-    int vtime = (timeoutMs + 99) / 100; // in tenths of a second
-    if (vtime < 1)  vtime = 1;
-    if (vtime > 255) vtime = 255;
+    // fix #7: VMIN=0 VTIME=0 → fully non-blocking reads.
+    // All timeout logic is handled by select() in ReadLine() so that:
+    //  (a) the full inter-character gap at 1200 baud is tolerated, and
+    //  (b) the overall line timeout still applies if the meter is silent.
     tty.c_cc[VMIN]  = 0;
-    tty.c_cc[VTIME] = (cc_t)vtime;
+    tty.c_cc[VTIME] = 0;
 
     if (tcsetattr(m_fd, TCSANOW, &tty) != 0)
     {
@@ -456,15 +459,62 @@ int SerialPort::Read(uint8_t* buf, int maxLen)
     return (int)n;
 }
 
+// fix #7: select()-based ReadLine.
+//
+// The old implementation called Read() byte-by-byte with VTIME-based
+// blocking.  At 1200 baud a single character takes ~8 ms, and the meter
+// may take tens of milliseconds to respond after receiving '\n'.
+// With VMIN=0 / VTIME=N each individual Read() timed out after N tenths
+// of a second, so a slow first byte would cause an early empty return
+// and the rest of the packet would be silently discarded.
+//
+// The new implementation uses select() with the full configured timeout
+// for every byte wait.  This correctly tolerates the meter's response
+// latency while still returning promptly on genuine silence (timeout).
+// A genuine I/O error is stored in m_lastError; a clean timeout clears
+// m_lastError so the caller can distinguish the two cases.
 std::string SerialPort::ReadLine(uint8_t terminator, int maxBytes)
 {
+    m_lastError.clear();    // clear stale errors before each line read
+
     std::string line;
     line.reserve(32);
+
     uint8_t ch;
     while ((int)line.size() < maxBytes)
     {
-        int n = Read(&ch, 1);
-        if (n <= 0) break;
+        // Wait up to m_timeoutMs for the next byte
+        fd_set rdset;
+        FD_ZERO(&rdset);
+        FD_SET(m_fd, &rdset);
+
+        struct timeval tv;
+        tv.tv_sec  =  m_timeoutMs / 1000;
+        tv.tv_usec = (m_timeoutMs % 1000) * 1000;
+
+        int ready = ::select(m_fd + 1, &rdset, nullptr, nullptr, &tv);
+        if (ready < 0)
+        {
+            if (errno == EINTR) continue;   // interrupted by signal — retry
+            SetError(std::string("select() failed: ") + strerror(errno));
+            return line;
+        }
+        if (ready == 0)
+        {
+            // Timeout — not an error; meter simply hasn't responded yet.
+            // m_lastError stays empty so the caller can tell it apart from
+            // a real I/O error (fix #3 in ReaderThread).
+            return line;
+        }
+
+        ssize_t n = ::read(m_fd, &ch, 1);
+        if (n < 0)
+        {
+            SetError(std::string("read() failed: ") + strerror(errno));
+            return line;
+        }
+        if (n == 0) break;              // EOF / device removed
+
         if (ch == terminator) break;
         line += (char)ch;
     }

@@ -1,5 +1,18 @@
 // ============================================================
 //  Protek506Logger — DmmParser.cpp
+//
+//  Fixes applied:
+//  #4  Sub-range byte (byte 2 per the manual's data format
+//      table) is now skipped before value parsing.  Previously
+//      only the mode byte was stripped, so the sub-range
+//      character was passed into ParseValueAndUnits() and could
+//      corrupt numeric extraction.
+//  #5  The std::regex object is now static const so it is
+//      compiled once, not on every Parse() call.
+//  #6  Logic-level detection now matches whole tokens (CiEquals)
+//      anchored to the full trimmed string, preventing false
+//      positives such as "Hi" matching inside "kHz" or "HIGH"
+//      matching inside other unit strings.
 // ============================================================
 #include "DmmParser.h"
 #include <cctype>
@@ -7,7 +20,7 @@
 #include <cstring>
 #include <regex>
 
-// Known mode first-byte characters
+// Known mode first-byte characters per manual section 8
 static const char* s_modeCodes = "ABCDFILT";
 
 DmmParser::DmmParser() {}
@@ -34,7 +47,7 @@ std::string DmmParser::MapMode(char code) const
     }
 }
 
-// Trim leading/trailing whitespace in-place
+// Trim leading/trailing whitespace
 static std::string Trim(const std::string& s)
 {
     size_t start = s.find_first_not_of(" \t\r\n");
@@ -43,62 +56,72 @@ static std::string Trim(const std::string& s)
     return s.substr(start, end - start + 1);
 }
 
+// Case-insensitive whole-string equality (fix #6: avoids substring
+// matches that caused false positives on "Hi" inside "kHz" etc.)
+static bool CiEquals(const std::string& a, const char* b)
+{
+    std::string au = a, bu = b;
+    std::transform(au.begin(), au.end(), au.begin(), ::toupper);
+    std::transform(bu.begin(), bu.end(), bu.begin(), ::toupper);
+    return au == bu;
+}
+
+// Case-insensitive prefix check
+static bool CiStartsWith(const std::string& s, const char* prefix)
+{
+    size_t plen = strlen(prefix);
+    if (s.size() < plen) return false;
+    for (size_t i = 0; i < plen; ++i)
+        if (toupper((unsigned char)s[i]) != toupper((unsigned char)prefix[i]))
+            return false;
+    return true;
+}
+
 void DmmParser::ParseValueAndUnits(const std::string& rest,
                                    DmmReading& out) const
 {
-    // Case-insensitive search helpers
-    auto ciFind = [](const std::string& hay, const char* needle) {
-        std::string h = hay, n = needle;
-        std::transform(h.begin(), h.end(), h.begin(), ::toupper);
-        std::transform(n.begin(), n.end(), n.begin(), ::toupper);
-        return h.find(n);
-    };
-
     std::string r = Trim(rest);
+    if (r.empty()) return;
 
-    // --- overload variants ---
-    if (ciFind(r, "OL") != std::string::npos ||
-        ciFind(r, ".OL") != std::string::npos ||
-        ciFind(r, "-OL") != std::string::npos)
+    // --- overload variants (.OL, -OL, OL) ---
+    // Check before numeric pattern since "OL" contains no digits.
+    if (CiEquals(r, "OL") || CiEquals(r, ".OL") || CiEquals(r, "-OL")
+        || CiStartsWith(r, "OL ") || CiStartsWith(r, ".OL ") || CiStartsWith(r, "-OL "))
     {
         out.isOverload = true;
         out.rawValue   = "OL";
-        // units may follow OL
-        size_t pos = ciFind(r, "OL");
-        if (pos != std::string::npos)
-        {
-            std::string after = Trim(r.substr(pos + 2));
-            if (!after.empty()) out.units = after;
-        }
+        // Any text after "OL" (possibly units) — find where OL ends
+        size_t olStart = (r[0] == '.' || r[0] == '-') ? 1 : 0;
+        size_t after   = olStart + 2; // skip "OL"
+        if (after < r.size())
+            out.units = Trim(r.substr(after));
         return;
     }
 
     // --- continuity / diode special readings ---
-    if (ciFind(r, "OPEN") != std::string::npos)
+    if (CiStartsWith(r, "OPEN"))
     {
         out.isOpen   = true;
         out.rawValue = "OPEN";
         return;
     }
-    if (ciFind(r, "SHORT") != std::string::npos)
+    if (CiStartsWith(r, "SHORT"))
     {
         out.isShort  = true;
         out.rawValue = "SHORT";
         return;
     }
 
-    // --- logic levels ---
-    if (ciFind(r, "HIGH") != std::string::npos ||
-        r.find("Hi") != std::string::npos ||
-        r.find("HI") != std::string::npos)
+    // fix #6: Logic-level detection uses whole-string equality so
+    // "Hi" does NOT match inside "kHz", "MHz", etc.
+    // The meter's logic mode outputs exactly "Hi", "Lo", or "----".
+    if (CiEquals(r, "Hi") || CiEquals(r, "High"))
     {
         out.isLogicHigh = true;
         out.rawValue    = "High";
         return;
     }
-    if (ciFind(r, "LOW") != std::string::npos ||
-        r.find("Lo") != std::string::npos ||
-        r.find("LO") != std::string::npos)
+    if (CiEquals(r, "Lo") || CiEquals(r, "Low"))
     {
         out.isLogicLow = true;
         out.rawValue   = "Low";
@@ -113,17 +136,18 @@ void DmmParser::ParseValueAndUnits(const std::string& rest,
     }
 
     // --- numeric value ---
-    // Pattern: optional sign, digits, optional decimal, optional suffix
-    // Unit suffix letters (k, m, u, z) may be embedded in value.
-    std::regex numPat(R"(([-+]?[0-9]*\.?[0-9]+[kKmMuUzZ]?))",
-                      std::regex::ECMAScript);
+    // fix #5: static const — regex compiled once, not per call.
+    static const std::regex numPat(
+        R"(([-+]?[0-9]*\.?[0-9]+[kKmMuUzZ]?))",
+        std::regex::ECMAScript | std::regex::optimize);
+
     std::smatch m;
     if (std::regex_search(r, m, numPat))
     {
         out.rawValue = m[1].str();
-        // everything after the matched number is units
         size_t endPos = (size_t)m.position(1) + m.length(1);
         std::string unitStr = Trim(r.substr(endPos));
+
         // Fix mangled degree symbol common in 7-bit ASCII transfer
         size_t dpos = unitStr.find("^C");
         while (dpos != std::string::npos)
@@ -135,7 +159,7 @@ void DmmParser::ParseValueAndUnits(const std::string& rest,
     }
     else
     {
-        // Fallback: treat entire string as raw value
+        // Fallback: treat entire trimmed string as raw value
         out.rawValue = r;
     }
 }
@@ -155,8 +179,13 @@ DmmReading DmmParser::Parse(const std::string& line)
     out.modeCode = std::string(1, firstByte);
     out.modeName = MapMode(firstByte);
 
-    // Rest of the line (skip mode byte and optional sub-range byte)
-    std::string rest = (clean.size() > 1) ? clean.substr(1) : "";
+    // fix #4: Skip BOTH byte 1 (mode) AND byte 2 (sub-range/function
+    // code) before parsing the value.  The manual's data format table
+    // (section 8) shows byte 2 is always a sub-range qualifier, e.g.:
+    //   'C' for auto-range DC V, 'E' for certain resistance ranges, etc.
+    // Previously only byte 1 was stripped, so 'C'/'E' etc. was fed into
+    // ParseValueAndUnits() and broke numeric pattern matching.
+    std::string rest = (clean.size() > 2) ? clean.substr(2) : "";
     ParseValueAndUnits(rest, out);
 
     return out;

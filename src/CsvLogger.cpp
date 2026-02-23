@@ -4,7 +4,7 @@
 #include "CsvLogger.h"
 #include <sys/stat.h>
 
-CsvLogger::CsvLogger() : m_rowCount(0) {}
+CsvLogger::CsvLogger() : m_rowCount(0), m_writeOk(true) {}
 CsvLogger::~CsvLogger() { Close(); }
 
 bool CsvLogger::Open(const std::string& filePath)
@@ -12,6 +12,7 @@ bool CsvLogger::Open(const std::string& filePath)
     Close();
     m_filePath = filePath;
     m_rowCount = 0;
+    m_writeOk  = true;
 
     // Check if file exists and is non-empty
     bool needHeader = true;
@@ -23,6 +24,7 @@ bool CsvLogger::Open(const std::string& filePath)
     if (!m_file.is_open())
     {
         m_lastError = "Cannot open file: " + filePath;
+        m_writeOk   = false;
         return false;
     }
 
@@ -30,6 +32,13 @@ bool CsvLogger::Open(const std::string& filePath)
         m_file << "date,time,mode,reading,units\n";
 
     m_file.flush();
+    if (m_file.fail())
+    {
+        m_lastError = "Write error on header flush (disk full?)";
+        m_writeOk   = false;
+        m_file.close();
+        return false;
+    }
     return true;
 }
 
@@ -58,6 +67,18 @@ void CsvLogger::Write(const std::string& date,
            << Escape(reading) << ","
            << Escape(units)   << "\n";
     m_file.flush();
+
+    // fix #12: Detect write failure (e.g. disk full) after each row.
+    // Close the file so IsOpen() returns false, letting the caller know
+    // logging has silently stopped.
+    if (m_file.fail())
+    {
+        m_lastError = "Write error (disk full or I/O error)";
+        m_writeOk   = false;
+        m_file.close();
+        return;
+    }
+
     ++m_rowCount;
 }
 

@@ -14,7 +14,7 @@
 #include <wx/font.h>
 #include <wx/colour.h>
 
-static const wxString APP_VERSION = "1.0.0";
+static const wxString APP_VERSION = "1.1.0";
 static const int      TIMER_MS    = 1000; // status-bar refresh
 
 // ============================================================
@@ -313,9 +313,13 @@ void MainFrame::StopReaderThread()
 {
     if (m_thread)
     {
+        // fix #2: Thread is JOINABLE.  Signal it to stop then Wait()
+        // so we are guaranteed it has exited — and therefore will never
+        // call wxQueueEvent on this (possibly already-destroyed) window —
+        // before we null the pointer.
         m_thread->RequestStop();
-        // Thread is detached; we can't join — just null the pointer.
-        // The thread will exit on its own after polling the stop flag.
+        m_thread->Wait();   // blocks ≤ ~1 s (serial read timeout)
+        delete m_thread;
         m_thread = nullptr;
     }
 }
@@ -415,11 +419,33 @@ void MainFrame::OnDmmReading(wxCommandEvent& evt)
 
     // Write to CSV if logging
     if (m_logging && m_logger.IsOpen())
+    {
         m_logger.Write(date.ToStdString(),
                        time.ToStdString(),
                        modeName.ToStdString(),
                        value.ToStdString(),
                        units.ToStdString());
+
+        // fix #12: Detect write failure (disk full, I/O error, etc.)
+        // IsOpen() returns false once CsvLogger::Write closes the file on error.
+        if (!m_logger.IsOpen())
+        {
+            m_logging = false;
+            m_btnToggleLog->SetLabel("Start Logging");
+            m_btnToggleLog->SetForegroundColour(wxColour(0, 128, 0));
+            m_btnChooseFile->Enable(true);
+            m_statusBar->SetStatusText("", 2);
+
+            wxString errMsg = m_logger.LastError();
+            CallAfter([this, errMsg]() {
+                if (IsBeingDeleted()) return;
+                wxMessageBox(
+                    wxString::Format("CSV logging stopped due to a write error:\n\n%s\n\n"
+                                     "Check available disk space.", errMsg),
+                    "Log Write Error", wxICON_ERROR | wxOK, this);
+            });
+        }
+    }
 
     UpdateStatusBar();
 }
@@ -440,9 +466,13 @@ void MainFrame::OnDmmError(wxCommandEvent& evt)
         m_lblReading->SetLabel("----");
         m_lblUnits->SetLabel("");
 
-        // Show a non-blocking message via CallAfter
+        // fix #11: The original lambda captured raw 'this', which could
+        // be dangling if the window is closed before CallAfter fires.
+        // Guard with IsBeingDeleted() — safe because CallAfter runs on
+        // the main thread where wxWindow lifetime is single-threaded.
         wxString errMsg = msg;
         CallAfter([this, errMsg]() {
+            if (IsBeingDeleted()) return;   // window already closing
             wxMessageBox(wxString::Format(
                 "Connection error:\n\n%s\n\nCheck that:\n"
                 " \xe2\x80\xa2 The meter is powered on\n"

@@ -1,0 +1,22 @@
+Version 1.1.0
+- ReaderThread.h / ReaderThread.cpp — three fixes:
+	- (Critical): m_stop changed from bool to std::atomic<bool>. The plain bool was a C++ data race — undefined behaviour when the main thread writes and the worker thread reads concurrently without synchronisation.
+	- (Critical): Thread changed from wxTHREAD_DETACHED to wxTHREAD_JOINABLE. StopReaderThread() now calls RequestStop() then Wait() before nulling the pointer, guaranteeing the thread has fully exited before the sink window can be destroyed. The detached design allowed wxQueueEvent to be called on a dangling wxEvtHandler*.
+	- (Medium): Entry() now checks m_serial.LastError() after an empty ReadLine() return, and posts EVT_DMM_ERROR + breaks the loop on a genuine I/O error rather than silently continuing. A mere timeout (empty line, empty error string) still polls normally.
+	
+- DmmParser.cpp — three fixes:
+	- (High): Parse() now does clean.substr(2) instead of clean.substr(1). The manual's data format table (section 8, page 45) shows byte 1 is the mode code and byte 2 is always a sub-range/function qualifier. Passing byte 2 into the value parser caused every numeric reading to start with a spurious letter like 'C' or 'E'.
+	- (Medium): The std::regex is now static const with the optimize flag, compiled once at first call rather than on every Parse() invocation.
+	- (Medium): Logic-level detection replaced find("Hi") / find("HIGH") substring searches with CiEquals() whole-string comparisons. This prevents false positives where "kHz", "MHz", or other unit strings containing those letter sequences were misidentified as logic High/Low.
+
+- SerialPort.h / SerialPort.cpp — one fix plus supporting fix to Entry() issue above:
+	- (Medium): POSIX Open() now sets VMIN=0, VTIME=0 (fully non-blocking reads) and stores timeoutMs in m_timeoutMs. ReadLine() is rewritten to use select() with the full configured timeout for each byte wait. The old VTIME-based approach timed out independently on every read() call, so a slow first byte from the 1200-baud meter would cause the function to return empty before the response arrived. A clean timeout now leaves m_lastError empty; genuine I/O errors set it — enabling the distinction required by fix #3.
+	- (Medium): Both Windows and POSIX ReadLine() now call m_lastError.clear() at entry so stale errors don't confuse the I/O-error detection in ReaderThread.
+
+- MainFrame.cpp - three fixes
+	- (Critical): StopReaderThread() updated to call m_thread->Wait() then delete m_thread instead of simply nulling the pointer.
+	- (Medium): The CallAfter lambda in OnDmmError() now guards with if (IsBeingDeleted()) return; at its start. IsBeingDeleted() is safe to call on the main thread and correctly handles the race where the window is closed between when the error event is posted and when CallAfter fires.
+	- (Medium): OnDmmReading() checks m_logger.IsOpen() after each Write() call; if the logger has auto-closed on error, logging is stopped and the user is notified via a CallAfter message box (also guarded with IsBeingDeleted()).
+
+Version 1.0.0
+- Initial Working Release.

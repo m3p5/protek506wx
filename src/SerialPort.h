@@ -49,6 +49,9 @@ public:
 
     std::string LastError() const { return m_lastError; }
 
+    // Clear a previous error (e.g. after the caller has handled it).
+    void ClearError() { m_lastError.clear(); }
+
 private:
     void SetError(const std::string& msg);
 
@@ -56,6 +59,7 @@ private:
     void* m_handle;   // HANDLE
 #else
     int   m_fd;
+    int   m_timeoutMs;  // stored for select()-based ReadLine (fix #7)
 #endif
     std::string m_lastError;
     bool        m_open;

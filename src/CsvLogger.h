@@ -24,6 +24,10 @@ public:
                const std::string& reading,
                const std::string& units);
 
+    // fix #12: Returns false if the last Write() failed (e.g. disk full).
+    // The file is closed on error; IsOpen() will return false afterward.
+    bool WriteOk() const { return m_writeOk; }
+
     std::string FilePath()  const { return m_filePath; }
     std::string LastError() const { return m_lastError; }
     long        RowCount()  const { return m_rowCount; }
@@ -33,6 +37,7 @@ private:
     std::string   m_filePath;
     std::string   m_lastError;
     long          m_rowCount;
+    bool          m_writeOk;   // fix #12: tracks post-open write health
 
     // CSV-escape a field (wrap in quotes if needed)
     static std::string Escape(const std::string& field);
