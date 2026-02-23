@@ -22,7 +22,7 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 
 ## Current Release
 
-*  Version 1.1.0
+*  Version 1.2.0
 
 ---
 

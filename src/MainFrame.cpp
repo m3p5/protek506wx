@@ -13,8 +13,10 @@
 #include <wx/statbox.h>
 #include <wx/font.h>
 #include <wx/colour.h>
+#include <wx/fileconf.h>
+#include <wx/settings.h>   // wxSystemSettings — for dark-mode-safe colours
 
-static const wxString APP_VERSION = "1.1.0";
+static const wxString APP_VERSION = "1.2.0";
 static const int      TIMER_MS    = 1000; // status-bar refresh
 
 // ============================================================
@@ -49,6 +51,7 @@ MainFrame::MainFrame(const wxString& title)
     Centre();
     m_timer.Start(TIMER_MS);
     UpdatePortList();
+    LoadSettings();       // restore last port, log file path
     UpdateStatusBar();
 }
 
@@ -295,6 +298,7 @@ void MainFrame::OnConnect(wxCommandEvent&)
     }
 
     SetConnected(true);
+    SaveSettings();   // persist the chosen port
     m_statusBar->SetStatusText(
         wxString::Format("Connected: %s", port), 1);
 }
@@ -381,7 +385,10 @@ void MainFrame::OnChooseLogFile(wxCommandEvent&)
                      "CSV files (*.csv)|*.csv|Text files (*.txt)|*.txt|All files (*.*)|*.*",
                      wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
     if (dlg.ShowModal() == wxID_OK)
+    {
         m_txtLogFile->SetValue(dlg.GetPath());
+        SaveSettings();   // persist the new log file path
+    }
 }
 
 void MainFrame::OnClearLog(wxCommandEvent&)
@@ -411,11 +418,12 @@ void MainFrame::OnDmmReading(wxCommandEvent& evt)
     m_lastRawLine = rawLine;
     ++m_readingCount;
 
-    // Update live display
+    // Always update the live display regardless of logging state
     DisplayReading(modeName, value, units);
 
-    // Append to table
-    AppendLogRow(date, time, modeName, value, units);
+    // Only add rows to the Reading Log table while logging is active
+    if (m_logging)
+        AppendLogRow(date, time, modeName, value, units);
 
     // Write to CSV if logging
     if (m_logging && m_logger.IsOpen())
@@ -548,11 +556,45 @@ void MainFrame::AppendLogRow(const wxString& date, const wxString& time,
     m_listLog->SetItem(idx, 4, reading);
     m_listLog->SetItem(idx, 5, units);
 
-    // Alternate row background for readability
-    if (idx % 2 == 0)
-        m_listLog->SetItemBackgroundColour(idx, wxColour(245, 248, 255));
-    else
-        m_listLog->SetItemBackgroundColour(idx, *wxWHITE);
+    // ----------------------------------------------------------------
+    // Dark-mode-safe alternating row colours (fix #3).
+    //
+    // Problem: hardcoded light backgrounds (white / pale blue) remain
+    // light even when macOS switches to Dark mode.  The system then
+    // renders the list text in a light colour too, making it invisible
+    // against the light row background.
+    //
+    // Solution: derive both the background and the text colour from the
+    // wxSystemSettings palette, which respects the current OS appearance.
+    //
+    //   wxSYS_COLOUR_LISTBOX      — the list's natural background
+    //   wxSYS_COLOUR_LISTBOXTEXT  — the list's natural foreground
+    //   wxSYS_COLOUR_HIGHLIGHT    — (avoided; only correct for selected)
+    //
+    // For the alternating stripe we blend the list background 90 % with
+    // the window-highlight colour (5 % in dark mode feels about right).
+    // A helper lambda does the blend in a single expression.
+    // ----------------------------------------------------------------
+    wxColour base  = wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOX);
+    wxColour text  = wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOXTEXT);
+
+    // Blend: result = base * (1-t) + accent * t,  t = 0.08
+    auto blend = [](wxColour a, wxColour b, double t) -> wxColour {
+        return wxColour(
+            static_cast<unsigned char>(a.Red()   * (1.0 - t) + b.Red()   * t),
+            static_cast<unsigned char>(a.Green() * (1.0 - t) + b.Green() * t),
+            static_cast<unsigned char>(a.Blue()  * (1.0 - t) + b.Blue()  * t));
+    };
+
+    // Use the window background as the accent colour for the stripe so
+    // it contrasts gently in both light and dark mode.
+    wxColour accent = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
+    wxColour stripe = blend(base, accent, 0.35);
+
+    wxColour rowBg = (idx % 2 == 0) ? stripe : base;
+
+    m_listLog->SetItemBackgroundColour(idx, rowBg);
+    m_listLog->SetItemTextColour(idx, text);
 
     // Auto-scroll to last row
     m_listLog->EnsureVisible(idx);
@@ -580,6 +622,77 @@ void MainFrame::OnTimer(wxTimerEvent&)
                 m_logger.RowCount(),
                 wxFileName(m_txtLogFile->GetValue()).GetFullName()), 2);
     }
+}
+
+// ============================================================
+// INI persistence (fix: remember last port and log file path)
+// ============================================================
+
+// Returns the full path to Protek506Logger.ini.
+// On macOS/Linux this is in the user's config directory
+// (e.g. ~/.config/Protek506Logger/Protek506Logger.ini).
+// On Windows it uses %APPDATA%\Protek506Logger\Protek506Logger.ini.
+// If the directory doesn't exist wxFileConfig creates it.
+/*static*/ wxString MainFrame::IniPath()
+{
+    wxFileName ini;
+    ini.AssignDir(wxStandardPaths::Get().GetUserDataDir());
+    ini.SetFullName("Protek506Logger.ini");
+    // Ensure the directory exists so wxFileConfig can write
+    if (!ini.DirExists())
+        wxFileName::Mkdir(ini.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
+    return ini.GetFullPath();
+}
+
+void MainFrame::SaveSettings()
+{
+    wxFileConfig cfg("Protek506Logger", wxEmptyString,
+                     IniPath(), wxEmptyString,
+                     wxCONFIG_USE_LOCAL_FILE);
+
+    // Save whichever port device string is currently selected
+    int sel = m_portChoice->GetSelection();
+    if (sel != wxNOT_FOUND)
+    {
+        wxStringClientData* cd =
+            dynamic_cast<wxStringClientData*>(m_portChoice->GetClientObject(sel));
+        wxString device = cd ? cd->GetData() : m_portChoice->GetStringSelection();
+        cfg.Write("/Serial/LastPort", device);
+    }
+
+    // Save the log file path
+    cfg.Write("/Logging/LastFile", m_txtLogFile->GetValue());
+
+    cfg.Flush();
+}
+
+void MainFrame::LoadSettings()
+{
+    wxFileConfig cfg("Protek506Logger", wxEmptyString,
+                     IniPath(), wxEmptyString,
+                     wxCONFIG_USE_LOCAL_FILE);
+
+    // Restore last port — scan the choice items for a matching device string
+    wxString lastPort;
+    if (cfg.Read("/Serial/LastPort", &lastPort) && !lastPort.IsEmpty())
+    {
+        for (unsigned i = 0; i < m_portChoice->GetCount(); ++i)
+        {
+            wxStringClientData* cd =
+                dynamic_cast<wxStringClientData*>(m_portChoice->GetClientObject(i));
+            wxString device = cd ? cd->GetData() : m_portChoice->GetString(i);
+            if (device == lastPort)
+            {
+                m_portChoice->SetSelection(i);
+                break;
+            }
+        }
+    }
+
+    // Restore log file path
+    wxString lastFile;
+    if (cfg.Read("/Logging/LastFile", &lastFile) && !lastFile.IsEmpty())
+        m_txtLogFile->SetValue(lastFile);
 }
 
 // ============================================================
@@ -611,6 +724,7 @@ void MainFrame::OnExit(wxCommandEvent&)
 
 void MainFrame::OnClose(wxCloseEvent& evt)
 {
+    SaveSettings();   // persist port and log file path on every close
     StopReaderThread();
     if (m_logging) m_logger.Close();
     evt.Skip(); // allow default close

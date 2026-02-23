@@ -10,6 +10,9 @@
 #include <wx/choice.h>
 #include <wx/filedlg.h>
 #include <wx/aboutdlg.h>
+#include <wx/fileconf.h>   // wxFileConfig — INI persistence
+#include <wx/filename.h>
+#include <wx/stdpaths.h>
 #include <memory>
 #include "ReaderThread.h"
 #include "CsvLogger.h"
@@ -53,6 +56,11 @@ private:
                         const wxString& value,
                         const wxString& units);
     void StopReaderThread();
+
+    // ---- INI persistence ----
+    void SaveSettings();
+    void LoadSettings();
+    static wxString IniPath();   // full path to Protek506Logger.ini
 
     // ---- widgets ----
     wxChoice*      m_portChoice       = nullptr;
