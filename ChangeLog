@@ -1,3 +1,8 @@
+Version 1.2.1
+- MainFrame.cpp - Two small changes:
+	- OnToggleLog() — m_readingCount is reset to 0 when the user clicks "Start Logging", so the first row written gets #1. Restarting logging after a stop also resets to #1.
+	- OnDmmReading() — ++m_readingCount is now inside the if (m_logging) block alongside AppendLogRow(). While connected but not logging, the count stays at 0 and the status bar shows Readings: 0. The "Clear Table" reset (already inside OnClearLog) was already correct and is untouched.
+
 Version 1.2.0
 - MainFrame.cpp / MainFrame.h - three feature improvements:
 	- INI persistence. wxFileConfig is used, pointing to Protek506Logger.ini in the platform-appropriate user data directory (~/.config/Protek506Logger/ on macOS/Linux, %APPDATA%\Protek506Logger\ on Windows). The directory is created automatically if it doesn't exist. Two keys are persisted: /Serial/LastPort (the device string, e.g. /dev/cu.usbserial-FTDHR9A3) and /Logging/LastFile (the CSV path). LoadSettings() is called at the end of the constructor after UpdatePortList() so the port list is already populated before we try to re-select a match. SaveSettings() is called on Connect (port confirmed working), on Browse (new file path chosen), and on window Close (catches any changes made during the session).

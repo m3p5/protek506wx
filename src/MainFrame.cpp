@@ -16,7 +16,7 @@
 #include <wx/fileconf.h>
 #include <wx/settings.h>   // wxSystemSettings — for dark-mode-safe colours
 
-static const wxString APP_VERSION = "1.2.0";
+static const wxString APP_VERSION = "1.2.1";
 static const int      TIMER_MS    = 1000; // status-bar refresh
 
 // ============================================================
@@ -360,6 +360,7 @@ void MainFrame::OnToggleLog(wxCommandEvent&)
         }
 
         m_logging = true;
+        m_readingCount = 0;   // count from 1 when first row is appended
         m_btnToggleLog->SetLabel("Stop Logging");
         m_btnToggleLog->SetForegroundColour(wxColour(180, 0, 0));
         m_btnChooseFile->Enable(false);
@@ -416,14 +417,16 @@ void MainFrame::OnDmmReading(wxCommandEvent& evt)
     wxString rawLine  = (parts.GetCount() > 5) ? parts[5] : "";
 
     m_lastRawLine = rawLine;
-    ++m_readingCount;
 
     // Always update the live display regardless of logging state
     DisplayReading(modeName, value, units);
 
-    // Only add rows to the Reading Log table while logging is active
+    // Only count and append rows while logging is active
     if (m_logging)
+    {
+        ++m_readingCount;
         AppendLogRow(date, time, modeName, value, units);
+    }
 
     // Write to CSV if logging
     if (m_logging && m_logger.IsOpen())
