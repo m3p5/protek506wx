@@ -1,3 +1,7 @@
+Version 1.2.3
+- MainFrame.cpp - Another fix to resolve a crash condition on Linux:
+	- (Critical): In BuildUI(), the parent argument for every child widget created inside a wxStaticBoxSizer was changed from root to the appropriate wxStaticBox variable: connBox, readBox, logCtrlBox, or tableBox. The four wxStaticBox objects themselves remain correctly parented to root. The Freeze/Thaw workaround was removed since it addressed only a symptom and is no longer necessary. This is the correct fix on macOS and Windows too — while those platforms don't crash, having the right parent is the specified behaviour.
+
 Version 1.2.2
 - MainFrame.cpp - One fix to resolve a crash condition on Linux:
 	- (Critical): SetConnected() batch layout: Wrap all the Enable() calls in a Freeze()/Thaw() pair on the parent panel. This suppresses the intermediate GTK size-allocation callbacks until all widget states are set, preventing the layout from ever seeing a partially-updated state with a zero-width spin button.

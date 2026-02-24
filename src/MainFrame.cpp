@@ -16,7 +16,7 @@
 #include <wx/fileconf.h>
 #include <wx/settings.h>   // wxSystemSettings — for dark-mode-safe colours
 
-static const wxString APP_VERSION = "1.2.2";
+static const wxString APP_VERSION = "1.2.3";
 static const int      TIMER_MS    = 1000; // status-bar refresh
 
 // ============================================================
@@ -98,30 +98,35 @@ void MainFrame::BuildUI()
     wxStaticBox*      connBox   = new wxStaticBox(root, wxID_ANY, "Serial Port");
     wxStaticBoxSizer* connSizer = new wxStaticBoxSizer(connBox, wxHORIZONTAL);
 
-    connSizer->Add(new wxStaticText(root, wxID_ANY, "Port:"),
+    // On GTK 3, children of a wxStaticBoxSizer MUST be parented to the
+    // wxStaticBox itself (not to the containing panel). If they are parented
+    // to the panel, GTK's internal widget tree is inconsistent and calling
+    // gtk_widget_set_sensitive() (i.e. Enable()) triggers a
+    // gtk_box_gadget_distribute assertion and segfault.
+    connSizer->Add(new wxStaticText(connBox, wxID_ANY, "Port:"),
                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
 
-    m_portChoice = new wxChoice(root, wxID_ANY, wxDefaultPosition, wxSize(180, -1));
+    m_portChoice = new wxChoice(connBox, wxID_ANY, wxDefaultPosition, wxSize(180, -1));
     connSizer->Add(m_portChoice, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
 
-    m_btnRefresh = new wxButton(root, ID_REFRESH_PORTS, "Refresh",
+    m_btnRefresh = new wxButton(connBox, ID_REFRESH_PORTS, "Refresh",
                                 wxDefaultPosition, wxSize(72, -1));
     connSizer->Add(m_btnRefresh, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 14);
 
-    connSizer->Add(new wxStaticText(root, wxID_ANY, "Poll (ms):"),
+    connSizer->Add(new wxStaticText(connBox, wxID_ANY, "Poll (ms):"),
                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
 
-    m_spinDelay = new wxSpinCtrl(root, wxID_ANY, "200",
+    m_spinDelay = new wxSpinCtrl(connBox, wxID_ANY, "200",
                                  wxDefaultPosition, wxSize(72, -1),
                                  wxSP_ARROW_KEYS, 50, 5000, 200);
     connSizer->Add(m_spinDelay, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 14);
 
-    m_btnConnect = new wxButton(root, ID_CONNECT, "Connect",
+    m_btnConnect = new wxButton(connBox, ID_CONNECT, "Connect",
                                 wxDefaultPosition, wxSize(90, -1));
     m_btnConnect->SetForegroundColour(wxColour(0, 128, 0));
     connSizer->Add(m_btnConnect, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
 
-    m_btnDisconnect = new wxButton(root, ID_DISCONNECT, "Disconnect",
+    m_btnDisconnect = new wxButton(connBox, ID_DISCONNECT, "Disconnect",
                                    wxDefaultPosition, wxSize(90, -1));
     m_btnDisconnect->SetForegroundColour(wxColour(180, 0, 0));
     m_btnDisconnect->Enable(false);
@@ -136,7 +141,7 @@ void MainFrame::BuildUI()
     wxStaticBoxSizer* readSizer = new wxStaticBoxSizer(readBox, wxVERTICAL);
 
     // Mode label (e.g. "DC Voltage")
-    m_lblMode = new wxStaticText(root, wxID_ANY, "---",
+    m_lblMode = new wxStaticText(readBox, wxID_ANY, "---",
                                  wxDefaultPosition, wxDefaultSize,
                                  wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
     {
@@ -149,7 +154,7 @@ void MainFrame::BuildUI()
     readSizer->Add(m_lblMode, 0, wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 6);
 
     // Reading value (large 7-segment-style)
-    m_lblReading = new wxStaticText(root, wxID_ANY, "----",
+    m_lblReading = new wxStaticText(readBox, wxID_ANY, "----",
                                     wxDefaultPosition, wxDefaultSize,
                                     wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
     {
@@ -163,7 +168,7 @@ void MainFrame::BuildUI()
     readSizer->Add(m_lblReading, 0, wxEXPAND | wxLEFT | wxRIGHT, 6);
 
     // Units
-    m_lblUnits = new wxStaticText(root, wxID_ANY, "",
+    m_lblUnits = new wxStaticText(readBox, wxID_ANY, "",
                                   wxDefaultPosition, wxDefaultSize,
                                   wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
     {
@@ -183,24 +188,24 @@ void MainFrame::BuildUI()
     wxStaticBox*      logCtrlBox   = new wxStaticBox(root, wxID_ANY, "CSV Logging");
     wxStaticBoxSizer* logCtrlSizer = new wxStaticBoxSizer(logCtrlBox, wxHORIZONTAL);
 
-    logCtrlSizer->Add(new wxStaticText(root, wxID_ANY, "File:"),
+    logCtrlSizer->Add(new wxStaticText(logCtrlBox, wxID_ANY, "File:"),
                       0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
 
-    m_txtLogFile = new wxTextCtrl(root, wxID_ANY, "Protek-506-log.csv",
+    m_txtLogFile = new wxTextCtrl(logCtrlBox, wxID_ANY, "Protek-506-log.csv",
                                   wxDefaultPosition, wxDefaultSize,
                                   wxTE_READONLY);
     logCtrlSizer->Add(m_txtLogFile, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
 
-    m_btnChooseFile = new wxButton(root, ID_CHOOSE_FILE, "Browse…",
+    m_btnChooseFile = new wxButton(logCtrlBox, ID_CHOOSE_FILE, "Browse\xe2\x80\xa6",
                                    wxDefaultPosition, wxSize(78, -1));
     logCtrlSizer->Add(m_btnChooseFile, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
 
-    m_btnToggleLog = new wxButton(root, ID_TOGGLE_LOG, "Start Logging",
+    m_btnToggleLog = new wxButton(logCtrlBox, ID_TOGGLE_LOG, "Start Logging",
                                   wxDefaultPosition, wxSize(110, -1));
     m_btnToggleLog->SetForegroundColour(wxColour(0, 128, 0));
     logCtrlSizer->Add(m_btnToggleLog, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
 
-    m_btnClearLog = new wxButton(root, ID_CLEAR_LOG, "Clear Table",
+    m_btnClearLog = new wxButton(logCtrlBox, ID_CLEAR_LOG, "Clear Table",
                                  wxDefaultPosition, wxSize(90, -1));
     logCtrlSizer->Add(m_btnClearLog, 0, wxALIGN_CENTER_VERTICAL);
 
@@ -212,7 +217,7 @@ void MainFrame::BuildUI()
     wxStaticBox*      tableBox   = new wxStaticBox(root, wxID_ANY, "Reading Log");
     wxStaticBoxSizer* tableSizer = new wxStaticBoxSizer(tableBox, wxVERTICAL);
 
-    m_listLog = new wxListCtrl(root, wxID_ANY,
+    m_listLog = new wxListCtrl(tableBox, wxID_ANY,
                                wxDefaultPosition, wxDefaultSize,
                                wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
                                wxBORDER_SUNKEN);
@@ -331,22 +336,11 @@ void MainFrame::StopReaderThread()
 void MainFrame::SetConnected(bool connected)
 {
     m_connected = connected;
-
-    // Freeze the top-level panel before changing multiple widget states.
-    // On GTK 3, each Enable() call can trigger a size-allocation pass; if
-    // the sizer sees the wxSpinCtrl mid-update it may compute a negative
-    // width, causing gtk_box_gadget_distribute to assert and segfault.
-    // Freeze() suppresses redraws and layout until Thaw() is called.
-    wxWindow* top = wxGetTopLevelParent(m_btnConnect);
-    if (top) top->Freeze();
-
     m_btnConnect->Enable(!connected);
     m_btnDisconnect->Enable(connected);
     m_portChoice->Enable(!connected);
     m_btnRefresh->Enable(!connected);
     m_spinDelay->Enable(!connected);
-
-    if (top) top->Thaw();
 }
 
 // ============================================================
@@ -723,8 +717,8 @@ void MainFrame::OnAbout(wxCommandEvent&)
         "Serial settings: 1200 baud, 7 data bits, 2 stop bits, no parity.\n\n"
         "Remember to enable RS232 mode on the meter:\n"
         "  MENU → RS232 → Enter");
-    info.SetCopyright("(C) 2025");
-    info.AddDeveloper("Built with wxWidgets");
+    info.SetCopyright("(C) 2026");
+    info.AddDeveloper("m3p5 - C++ with wxWidgets");
     wxAboutBox(info, this);
 }
 
