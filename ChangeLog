@@ -1,3 +1,7 @@
+Version 1.2.2
+- MainFrame.cpp - One fix to resolve a crash condition on Linux:
+	- (Critical): SetConnected() batch layout: Wrap all the Enable() calls in a Freeze()/Thaw() pair on the parent panel. This suppresses the intermediate GTK size-allocation callbacks until all widget states are set, preventing the layout from ever seeing a partially-updated state with a zero-width spin button.
+
 Version 1.2.1
 - MainFrame.cpp - Two small changes:
 	- OnToggleLog() — m_readingCount is reset to 0 when the user clicks "Start Logging", so the first row written gets #1. Restarting logging after a stop also resets to #1.

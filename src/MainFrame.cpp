@@ -16,7 +16,7 @@
 #include <wx/fileconf.h>
 #include <wx/settings.h>   // wxSystemSettings — for dark-mode-safe colours
 
-static const wxString APP_VERSION = "1.2.1";
+static const wxString APP_VERSION = "1.2.2";
 static const int      TIMER_MS    = 1000; // status-bar refresh
 
 // ============================================================
@@ -331,11 +331,22 @@ void MainFrame::StopReaderThread()
 void MainFrame::SetConnected(bool connected)
 {
     m_connected = connected;
+
+    // Freeze the top-level panel before changing multiple widget states.
+    // On GTK 3, each Enable() call can trigger a size-allocation pass; if
+    // the sizer sees the wxSpinCtrl mid-update it may compute a negative
+    // width, causing gtk_box_gadget_distribute to assert and segfault.
+    // Freeze() suppresses redraws and layout until Thaw() is called.
+    wxWindow* top = wxGetTopLevelParent(m_btnConnect);
+    if (top) top->Freeze();
+
     m_btnConnect->Enable(!connected);
     m_btnDisconnect->Enable(connected);
     m_portChoice->Enable(!connected);
     m_btnRefresh->Enable(!connected);
     m_spinDelay->Enable(!connected);
+
+    if (top) top->Thaw();
 }
 
 // ============================================================
