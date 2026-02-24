@@ -177,8 +177,14 @@ make -j$(nproc)
 
 ```
 protek506wx/
+├── ChangeLog               # Version history
 ├── CMakeLists.txt          # Top-level build script
+├── LICENSE                 # Software license description
 ├── README.md               # This file
+├── References/
+│   ├── Protek_506_Manual.pdf   # Manual for Protek 506 DMM
+│   ├── protek_506.jpg          # Picture of a Protek 506
+│   └── Protek506Logger.png     # Screenshot of application
 ├── resources/
 │   └── win32.rc            # Windows version/icon resource
 └── src/
