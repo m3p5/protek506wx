@@ -15,7 +15,7 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 - Large live reading display with colour-coded values
 - Configurable polling interval (50–5000 ms)
 - CSV logging with automatic header; appends to existing files
-- Scrollable reading log table (last 5 000 rows kept in memory)
+- Scrollable reading log table (last 5,000 rows kept in memory)
 - Cross-platform: **macOS**, **Windows 11**, **Linux**
 
 ![Protek 506](./References/Protek506Logger.png)
