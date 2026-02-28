@@ -1,7 +1,8 @@
 // ============================================================
 //  Protek506Logger — SerialPort.cpp
 //  Cross-platform RS-232 implementation.
-//  Protek 506 spec: 1200 baud, 7 data bits, 2 stop bits, no parity.
+//  Protek 506 spec:
+//      1200 baud, 7 data bits, 2 stop bits, no parity
 // ============================================================
 #include "SerialPort.h"
 #include <algorithm>

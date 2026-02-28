@@ -1,3 +1,6 @@
+Version 1.3.1
+- MainFrane.cpp - Fixed a minor issue with the GTK build that affected the "Poll (ms):" setting control.
+
 Version 1.3.0
 - Most of the updates in this version were to resolve a crash condition on the Linux build:
 	- On GTK3 (Ubuntu 22.04 / 24.04, wxWidgets 3.2.x), wxStaticBox is implemented as a GtkFrame containing an internal GtkBox. When ANY widget that wraps a GtkScrolledWindow (including wxListCtrl, which is backed by GtkTreeView+GtkScrolledWindow) ends up as a descendant of a GtkFrame — even two or three levels deep — GTK3's size-allocation walk corrupts internal geometry state.  The corruption is silent (no assert, no stderr output) until the first call that touches row geometry after logging starts, at which point it SIGSEGV.

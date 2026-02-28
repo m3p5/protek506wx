@@ -24,7 +24,7 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 
 ## Current Release
 
-*  Version 1.3.0
+*  Version 1.3.1
 ---
 
 ## Meter Setup

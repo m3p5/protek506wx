@@ -1,30 +1,5 @@
 // ============================================================
-//  Protek506Logger — MainFrame.cpp   (v1.3.0)
-//
-//  GTK3 CRASH ROOT CAUSE AND FIX
-//  ───────────────────────────────────────────────────────────
-//  On GTK3 (Ubuntu 22.04 / 24.04, wxWidgets 3.2.x), wxStaticBox
-//  is implemented as a GtkFrame containing an internal GtkBox.
-//  When ANY widget that wraps a GtkScrolledWindow (including
-//  wxListCtrl, which is backed by GtkTreeView+GtkScrolledWindow)
-//  ends up as a descendant of a GtkFrame — even two or three
-//  levels deep — GTK3's size-allocation walk corrupts internal
-//  geometry state.  The corruption is silent (no assert, no
-//  stderr output) until the first call that touches row geometry
-//  after logging starts, at which point it SIGSEGV.
-//
-//  The only reliable fix on GTK3 3.24 is to keep the wxListCtrl
-//  completely outside every wxStaticBox in the widget tree.
-//
-//  This version replaces the "Reading Log" wxStaticBox+wxStaticBoxSizer
-//  with a plain wxBoxSizer.  A bold wxStaticText provides the
-//  group-box title, and the list sits in a simple wxPanel with a
-//  sunken border — visually equivalent, zero GtkFrame involvement.
-//
-//  All other group boxes (Serial Port, Live Reading, CSV Logging)
-//  continue to use wxStaticBox because they contain only simple
-//  widgets (buttons, text controls, choice, spin) that are safe
-//  inside a GtkFrame.
+//  Protek506Logger — MainFrame.cpp   (v1.3.1)
 // ============================================================
 #include "MainFrame.h"
 #include <wx/aboutdlg.h>
@@ -42,7 +17,7 @@
 #include <wx/settings.h>
 #include "Events.h"
 
-static const wxString APP_VERSION = "1.3.0";
+static const wxString APP_VERSION = "1.3.1";
 static const int      TIMER_MS    = 1000;
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
@@ -96,7 +71,7 @@ void MainFrame::BuildUI()
     wxBoxSizer* rootSizer = new wxBoxSizer(wxVERTICAL);
 
     // ----------------------------------------------------------
-    // Serial Port  (wxStaticBox is safe here — simple children only)
+    // Serial Port
     // ----------------------------------------------------------
     {
         wxStaticBox*      box   = new wxStaticBox(root, wxID_ANY, "Serial Port");
@@ -116,12 +91,9 @@ void MainFrame::BuildUI()
         sizer->Add(new wxStaticText(box, wxID_ANY, "Poll (ms):"),
                    0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
 
-        m_spinDelay = new wxSpinCtrl(box, wxID_ANY, "200",
-                                     wxDefaultPosition, wxSize(72, -1),
-                                     wxSP_ARROW_KEYS, 50, 5000, 200);
-        m_spinDelay->SetMinSize(wxSize(90, 28));
-        m_spinDelay->SetInitialSize(wxSize(90, 28));
-        m_spinDelay->InvalidateBestSize();
+        m_spinDelay = new wxSpinCtrl(box, wxID_ANY, "250",
+                                     wxDefaultPosition, wxDefaultSize,
+                                     wxSP_ARROW_KEYS, 200, 60000, 250);
         sizer->Add(m_spinDelay, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 14);
 
         m_btnConnect = new wxButton(box, ID_CONNECT, "Connect",
@@ -139,7 +111,7 @@ void MainFrame::BuildUI()
     }
 
     // ----------------------------------------------------------
-    // Live Reading  (wxStaticBox safe — simple children only)
+    // Live Reading
     // ----------------------------------------------------------
     {
         wxStaticBox*      box   = new wxStaticBox(root, wxID_ANY, "Live Reading");
@@ -173,7 +145,7 @@ void MainFrame::BuildUI()
     }
 
     // ----------------------------------------------------------
-    // CSV Logging controls  (wxStaticBox safe — simple children only)
+    // CSV Logging controls
     // ----------------------------------------------------------
     {
         wxStaticBox*      box   = new wxStaticBox(root, wxID_ANY, "CSV Logging");
@@ -205,11 +177,6 @@ void MainFrame::BuildUI()
 
     // ----------------------------------------------------------
     // Reading Log table
-    //
-    // NO wxStaticBox here.  wxListCtrl (GtkTreeView inside
-    // GtkScrolledWindow) must NOT be a descendant of any GtkFrame
-    // on GTK3 3.24.  We emulate the group-box look with a bold
-    // wxStaticText title and a sunken wxPanel container.
     // ----------------------------------------------------------
     {
         // Title label styled to match the other group boxes
