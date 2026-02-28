@@ -37,21 +37,18 @@ std::vector<PortInfo> SerialPort::ListPorts()
 
     for (DWORD i = 0; SetupDiEnumDeviceInfo(hDevInfo, i, &devInfoData); ++i)
     {
-        char portName[256]  = {};
-        char desc[256]      = {};
-        char mfg[256]       = {};
+        char portName[256] = {};
+        char desc[256] = {};
+        char mfg[256] = {};
 
-        // Friendly name (description)
         SetupDiGetDeviceRegistryPropertyA(hDevInfo, &devInfoData,
             SPDRP_FRIENDLYNAME, nullptr,
             (PBYTE)desc, sizeof(desc), nullptr);
 
-        // Manufacturer
         SetupDiGetDeviceRegistryPropertyA(hDevInfo, &devInfoData,
             SPDRP_MFG, nullptr,
             (PBYTE)mfg, sizeof(mfg), nullptr);
 
-        // Port name from registry key
         HKEY hKey = SetupDiOpenDevRegKey(hDevInfo, &devInfoData,
             DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
         if (hKey != INVALID_HANDLE_VALUE)
@@ -65,8 +62,8 @@ std::vector<PortInfo> SerialPort::ListPorts()
         if (portName[0] != '\0')
         {
             PortInfo pi;
-            pi.device       = portName;
-            pi.description  = desc;
+            pi.device = portName;
+            pi.description = desc;
             pi.manufacturer = mfg;
             result.push_back(pi);
         }
@@ -82,13 +79,12 @@ bool SerialPort::Open(const std::string& device, int baudRate,
                       int dataBits, int stopBits, char parity, int timeoutMs)
 {
     Close();
-    // Windows requires "\\\\.\\" prefix for ports > COM9
-    std::string path = "\\\\.\\" + device;
 
+    std::string path = "\\\\.\\" + device;
     m_handle = CreateFileA(path.c_str(),
-        GENERIC_READ | GENERIC_WRITE,
-        0, nullptr, OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL, nullptr);
+                           GENERIC_READ | GENERIC_WRITE,
+                           0, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
 
     if (m_handle == INVALID_HANDLE_VALUE)
     {
@@ -96,7 +92,6 @@ bool SerialPort::Open(const std::string& device, int baudRate,
         return false;
     }
 
-    // --- DCB ---
     DCB dcb = {};
     dcb.DCBlength = sizeof(DCB);
     if (!GetCommState(m_handle, &dcb))
@@ -106,11 +101,10 @@ bool SerialPort::Open(const std::string& device, int baudRate,
     }
 
     dcb.BaudRate = baudRate;
-    dcb.ByteSize = (BYTE)dataBits;
+    dcb.ByteSize = static_cast<BYTE>(dataBits);
     dcb.StopBits = (stopBits == 2) ? TWOSTOPBITS : ONESTOPBIT;
-    dcb.Parity   = (parity == 'E') ? EVENPARITY
-                 : (parity == 'O') ? ODDPARITY
-                 :                   NOPARITY;
+    dcb.Parity   = (parity == 'E') ? EVENPARITY :
+                   (parity == 'O') ? ODDPARITY : NOPARITY;
     dcb.fParity  = (parity != 'N') ? TRUE : FALSE;
     dcb.fBinary  = TRUE;
 
@@ -120,13 +114,12 @@ bool SerialPort::Open(const std::string& device, int baudRate,
         Close(); return false;
     }
 
-    // --- timeouts ---
     COMMTIMEOUTS ct = {};
-    ct.ReadIntervalTimeout         = MAXDWORD;
-    ct.ReadTotalTimeoutMultiplier  = MAXDWORD;
-    ct.ReadTotalTimeoutConstant    = (DWORD)timeoutMs;
+    ct.ReadIntervalTimeout = MAXDWORD;
+    ct.ReadTotalTimeoutMultiplier = MAXDWORD;
+    ct.ReadTotalTimeoutConstant = static_cast<DWORD>(timeoutMs);
     ct.WriteTotalTimeoutMultiplier = 0;
-    ct.WriteTotalTimeoutConstant   = timeoutMs;
+    ct.WriteTotalTimeoutConstant = timeoutMs;
     SetCommTimeouts(m_handle, &ct);
 
     m_open = true;
@@ -138,7 +131,7 @@ void SerialPort::Close()
     if (m_open && m_handle != INVALID_HANDLE_VALUE)
         CloseHandle(m_handle);
     m_handle = INVALID_HANDLE_VALUE;
-    m_open   = false;
+    m_open = false;
 }
 
 bool SerialPort::IsOpen() const { return m_open; }
@@ -147,12 +140,12 @@ int SerialPort::Write(const uint8_t* data, int len)
 {
     if (!m_open) return -1;
     DWORD written = 0;
-    if (!WriteFile(m_handle, data, (DWORD)len, &written, nullptr))
+    if (!WriteFile(m_handle, data, static_cast<DWORD>(len), &written, nullptr))
     {
         SetError("WriteFile failed");
         return -1;
     }
-    return (int)written;
+    return static_cast<int>(written);
 }
 
 int SerialPort::WriteByte(uint8_t b)
@@ -164,27 +157,27 @@ int SerialPort::Read(uint8_t* buf, int maxLen)
 {
     if (!m_open) return -1;
     DWORD got = 0;
-    if (!ReadFile(m_handle, buf, (DWORD)maxLen, &got, nullptr))
+    if (!ReadFile(m_handle, buf, static_cast<DWORD>(maxLen), &got, nullptr))
     {
         SetError("ReadFile failed");
         return -1;
     }
-    return (int)got;
+    return static_cast<int>(got);
 }
 
 std::string SerialPort::ReadLine(uint8_t terminator, int maxBytes)
 {
-    m_lastError.clear();    // clear stale error; genuine errors set it below
+    m_lastError.clear();
     std::string line;
     line.reserve(32);
     uint8_t ch;
-    while ((int)line.size() < maxBytes)
+    while (static_cast<int>(line.size()) < maxBytes)
     {
         int n = Read(&ch, 1);
-        if (n < 0) return line;     // error already stored in m_lastError
-        if (n == 0) break;          // timeout — m_lastError stays empty
+        if (n < 0) return line;
+        if (n == 0) break;
         if (ch == terminator) break;
-        line += (char)ch;
+        line += static_cast<char>(ch);
     }
     return line;
 }
@@ -206,10 +199,10 @@ void SerialPort::SetError(const std::string& msg)
 #include <dirent.h>
 
 #ifdef __APPLE__
-  #include <sys/param.h>
-  #include <IOKit/IOKitLib.h>
-  #include <IOKit/serial/IOSerialKeys.h>
-  #include <CoreFoundation/CoreFoundation.h>
+#include <sys/param.h>
+#include <IOKit/IOKitLib.h>
+#include <IOKit/serial/IOSerialKeys.h>
+#include <CoreFoundation/CoreFoundation.h>
 #endif
 
 SerialPort::SerialPort() : m_fd(-1), m_timeoutMs(1000), m_open(false) {}
@@ -425,86 +418,42 @@ bool SerialPort::Open(const std::string& device, int baudRate,
 
 void SerialPort::Close()
 {
-    if (m_open && m_fd >= 0)
+    if (m_fd >= 0)
+    {
         ::close(m_fd);
-    m_fd   = -1;
+        m_fd = -1;
+    }
     m_open = false;
 }
 
-bool SerialPort::IsOpen() const { return m_open; }
-
-int SerialPort::Write(const uint8_t* data, int len)
-{
-    if (!m_open) return -1;
-    ssize_t n = ::write(m_fd, data, (size_t)len);
-    if (n < 0) { SetError(std::string("write() failed: ") + strerror(errno)); return -1; }
-    return (int)n;
-}
-
-int SerialPort::WriteByte(uint8_t b)
-{
-    return Write(&b, 1);
-}
-
-int SerialPort::Read(uint8_t* buf, int maxLen)
-{
-    if (!m_open) return -1;
-    ssize_t n = ::read(m_fd, buf, (size_t)maxLen);
-    if (n < 0)
-    {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
-        SetError(std::string("read() failed: ") + strerror(errno));
-        return -1;
-    }
-    return (int)n;
-}
-
-// fix #7: select()-based ReadLine.
-//
-// The old implementation called Read() byte-by-byte with VTIME-based
-// blocking.  At 1200 baud a single character takes ~8 ms, and the meter
-// may take tens of milliseconds to respond after receiving '\n'.
-// With VMIN=0 / VTIME=N each individual Read() timed out after N tenths
-// of a second, so a slow first byte would cause an early empty return
-// and the rest of the packet would be silently discarded.
-//
-// The new implementation uses select() with the full configured timeout
-// for every byte wait.  This correctly tolerates the meter's response
-// latency while still returning promptly on genuine silence (timeout).
-// A genuine I/O error is stored in m_lastError; a clean timeout clears
-// m_lastError so the caller can distinguish the two cases.
 std::string SerialPort::ReadLine(uint8_t terminator, int maxBytes)
 {
-    m_lastError.clear();    // clear stale errors before each line read
+    m_lastError.clear();
 
     std::string line;
     line.reserve(32);
 
     uint8_t ch;
-    while ((int)line.size() < maxBytes)
+    while (static_cast<int>(line.size()) < maxBytes)
     {
-        // Wait up to m_timeoutMs for the next byte
         fd_set rdset;
         FD_ZERO(&rdset);
         FD_SET(m_fd, &rdset);
 
         struct timeval tv;
-        tv.tv_sec  =  m_timeoutMs / 1000;
+        tv.tv_sec  = m_timeoutMs / 1000;
         tv.tv_usec = (m_timeoutMs % 1000) * 1000;
 
         int ready = ::select(m_fd + 1, &rdset, nullptr, nullptr, &tv);
         if (ready < 0)
         {
-            if (errno == EINTR) continue;   // interrupted by signal — retry
+            if (errno == EINTR) continue;
             SetError(std::string("select() failed: ") + strerror(errno));
             return line;
         }
         if (ready == 0)
         {
-            // Timeout — not an error; meter simply hasn't responded yet.
-            // m_lastError stays empty so the caller can tell it apart from
-            // a real I/O error (fix #3 in ReaderThread).
-            return line;
+            return line;  // timeout
         }
 
         ssize_t n = ::read(m_fd, &ch, 1);
@@ -513,12 +462,31 @@ std::string SerialPort::ReadLine(uint8_t terminator, int maxBytes)
             SetError(std::string("read() failed: ") + strerror(errno));
             return line;
         }
-        if (n == 0) break;              // EOF / device removed
+        if (n == 0) break;
 
         if (ch == terminator) break;
-        line += (char)ch;
+        line += static_cast<char>(ch);
     }
     return line;
+}
+
+int SerialPort::Write(const uint8_t* data, int len)
+{
+    if (!m_open || m_fd < 0) return -1;
+
+    ssize_t n = ::write(m_fd, data, static_cast<size_t>(len));
+    if (n < 0)
+    {
+        SetError(std::string("write() failed: ") + strerror(errno));
+        return -1;
+    }
+
+    return static_cast<int>(n);
+}
+
+int SerialPort::WriteByte(uint8_t b)
+{
+    return Write(&b, 1);
 }
 
 void SerialPort::SetError(const std::string& msg)

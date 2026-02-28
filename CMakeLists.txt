@@ -1,5 +1,25 @@
 cmake_minimum_required(VERSION 3.16)
-project(Protek506Logger VERSION 1.2.3 LANGUAGES CXX)
+
+# ----------------------------------------------------------------
+# Guard against in-source builds
+# ----------------------------------------------------------------
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR
+        "In-source builds are not allowed.\n"
+        "Create a separate build directory and run cmake from there:\n"
+        "  mkdir build && cd build && cmake ..")
+endif()
+
+# ----------------------------------------------------------------
+# macOS deployment target — must be set BEFORE project().
+# ----------------------------------------------------------------
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING
+        "Minimum macOS deployment version")
+endif()
+
+# Version kept in sync with APP_VERSION in MainFrame.cpp
+project(Protek506Logger VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,11 +27,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # ----------------------------------------------------------------
 # wxWidgets
+#
+# 'adv' is REQUIRED (not optional): wxListCtrl and wxAboutBox live
+# there on many wxWidgets package configurations.  Leaving it as
+# OPTIONAL_COMPONENTS causes silent build success followed by linker
+# errors at link time.
 # ----------------------------------------------------------------
-# Prefer a wx-config-discovered install, then CMake package.
 find_package(wxWidgets REQUIRED
-    COMPONENTS core base
-    OPTIONAL_COMPONENTS adv
+    COMPONENTS core base adv
 )
 include(${wxWidgets_USE_FILE})
 
@@ -43,34 +66,40 @@ if(WIN32)
 elseif(APPLE)
     # macOS app bundle
     set(MACOSX_BUNDLE_BUNDLE_NAME    "Protek 506 Logger")
-    set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.example.protek506logger")
+    # Avoid the reserved com.example domain
+    set(MACOSX_BUNDLE_GUI_IDENTIFIER "org.opensource.protek506logger")
     set(MACOSX_BUNDLE_SHORT_VERSION  "${PROJECT_VERSION}")
     set(MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
 
-    # App icon (optional — will be silently skipped if file absent)
-    set(ICON_FILE "${CMAKE_SOURCE_DIR}/resources/protek506.icns")
+    # App icon (optional — silently skipped if file absent)
+    set(ICON_FILE "${CMAKE_SOURCE_DIR}/resources/protek506.ico")
     if(EXISTS "${ICON_FILE}")
         list(APPEND SOURCES ${ICON_FILE})
         set_source_files_properties(${ICON_FILE}
             PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-        set(MACOSX_BUNDLE_ICON_FILE protek506.icns)
+        set(MACOSX_BUNDLE_ICON_FILE protek506.ico)
     endif()
 
     add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES})
 
     # IOKit + CoreFoundation for serial port enumeration on macOS
-    find_library(IOKIT_LIB   IOKit)
+    find_library(IOKIT_LIB     IOKit)
     find_library(COREFOUND_LIB CoreFoundation)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         ${IOKIT_LIB} ${COREFOUND_LIB})
 
 else()
     # Linux
+    # Explicitly link pthreads: wxThread uses it and some wxWidgets
+    # package configurations do not pull it in transitively, causing
+    # undefined references to pthread_create at link time.
+    find_package(Threads REQUIRED)
     add_executable(${PROJECT_NAME} ${SOURCES})
+    target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
 endif()
 
 # ----------------------------------------------------------------
-# wxWidgets link
+# wxWidgets link (all platforms)
 # ----------------------------------------------------------------
 target_link_libraries(${PROJECT_NAME} PRIVATE ${wxWidgets_LIBRARIES})
 target_include_directories(${PROJECT_NAME} PRIVATE

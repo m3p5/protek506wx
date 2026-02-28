@@ -3,32 +3,53 @@
 //  Protek506Logger — DmmParser.h
 //  Parses raw ASCII lines from the Protek 506.
 //
-//  Protocol (from manual, section 8, "DATA FORMAT"):
-//    Byte 1  : mode code  D=DC, A=AC, R=RES, L=DIO/Logic,
-//                         F=FREQ, C=CAP, I=IND, T=TEMP
-//    Byte 2  : range/sub-mode code (C = auto/common)
-//    Byte 3+ : reading value string
-//    Last    : units string
-//    Terminator: CR (0x0D)
+//  Protocol (from manual, section 7, "DATA FORMAT", page 45):
+//
+//  The meter sends a plain ASCII line terminated by CR (0x0D)
+//  in response to each LF (0x0A) trigger from the host.
+//
+//  Line format:
+//    <MODE_WORD> <SP> <VALUE> [<SP> <UNITS>] <CR>
+//
+//  MODE_WORD is a multi-character ASCII token (always uppercase):
+//    DC    DC voltage or current
+//    AC    AC voltage or current
+//    RES   Resistance
+//    BUZ   Continuity (buzzer)
+//    DIOD  Diode test
+//    LOG   Logic level
+//    FR    Frequency
+//    CAP   Capacitance
+//    IND   Inductance
+//    TEMP  Temperature
+//
+//  VALUE is a numeric string (e.g. "3.999", "-0.001") or a
+//  special token: "OL" (overload), "SHORT", "OPEN", "HIGH",
+//  "LOW", "GOOD", "----".
+//
+//  UNITS is a short ASCII string, e.g. "V", "mV", "MOH", "KOH",
+//  "OH", "MHz", "kHz", "uF", "nF", "C", "F".
 //
 //  The meter sends data after receiving '\n' (0x0A).
+//
+//  Serial settings: 1200 baud, 7 data bits, 2 stop bits, no parity.
 // ============================================================
 #include <string>
 
 struct DmmReading
 {
-    bool        valid     = false;
-    std::string modeCode;     // raw 1st byte, e.g. "D"
-    std::string modeName;     // friendly, e.g. "DC"
-    std::string rawValue;     // e.g. "3.141", "OL", "High", "----"
-    std::string units;        // e.g. "V", "kΩ", "°C"
-    std::string rawLine;      // original line for logging/debug
-    bool        isOverload  = false;
-    bool        isOpen      = false;
-    bool        isShort     = false;
-    bool        isLogicHigh = false;
-    bool        isLogicLow  = false;
-    bool        isLogicUndef= false;
+    bool        valid        = false;
+    std::string modeCode;       // full mode word as sent, e.g. "DC", "RES", "TEMP"
+    std::string modeName;       // friendly display name, e.g. "DC", "FREQ", "TEMP"
+    std::string rawValue;       // e.g. "3.141", "OL", "High", "----"
+    std::string units;          // e.g. "V", "kΩ", "°C"  (UTF-8)
+    std::string rawLine;        // original line for logging/debug
+    bool        isOverload   = false;
+    bool        isOpen       = false;
+    bool        isShort      = false;
+    bool        isLogicHigh  = false;
+    bool        isLogicLow   = false;
+    bool        isLogicUndef = false;
 };
 
 class DmmParser
@@ -36,15 +57,17 @@ class DmmParser
 public:
     DmmParser();
 
-    // Parse a raw line (without terminator) received from the meter.
+    // Parse a raw line (CR terminator already stripped) from the meter.
     // Returns a DmmReading; check .valid before using.
     DmmReading Parse(const std::string& line);
 
-    // True if the first byte is a known mode code.
+    // Returns true if the first byte of the line could begin a valid
+    // mode word.  Used as a cheap pre-filter before full parsing.
     static bool IsKnownModeCode(char c);
 
 private:
-    std::string MapMode(char code) const;
-    void        ParseValueAndUnits(const std::string& rest,
-                                   DmmReading& out) const;
+    // Returns the friendly display name for a mode word, e.g. "FR" → "FREQ".
+    std::string MapMode(const std::string& word) const;
+
+    void ParseValueAndUnits(const std::string& rest, DmmReading& out) const;
 };

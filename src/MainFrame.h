@@ -16,6 +16,7 @@
 #include <memory>
 #include "ReaderThread.h"
 #include "CsvLogger.h"
+#include "Events.h"
 
 class MainFrame : public wxFrame
 {

@@ -1,48 +1,70 @@
 // ============================================================
-//  Protek506Logger — MainFrame.cpp
+//  Protek506Logger — MainFrame.cpp   (v1.3.0)
+//
+//  GTK3 CRASH ROOT CAUSE AND FIX
+//  ───────────────────────────────────────────────────────────
+//  On GTK3 (Ubuntu 22.04 / 24.04, wxWidgets 3.2.x), wxStaticBox
+//  is implemented as a GtkFrame containing an internal GtkBox.
+//  When ANY widget that wraps a GtkScrolledWindow (including
+//  wxListCtrl, which is backed by GtkTreeView+GtkScrolledWindow)
+//  ends up as a descendant of a GtkFrame — even two or three
+//  levels deep — GTK3's size-allocation walk corrupts internal
+//  geometry state.  The corruption is silent (no assert, no
+//  stderr output) until the first call that touches row geometry
+//  after logging starts, at which point it SIGSEGV.
+//
+//  The only reliable fix on GTK3 3.24 is to keep the wxListCtrl
+//  completely outside every wxStaticBox in the widget tree.
+//
+//  This version replaces the "Reading Log" wxStaticBox+wxStaticBoxSizer
+//  with a plain wxBoxSizer.  A bold wxStaticText provides the
+//  group-box title, and the list sits in a simple wxPanel with a
+//  sunken border — visually equivalent, zero GtkFrame involvement.
+//
+//  All other group boxes (Serial Port, Live Reading, CSV Logging)
+//  continue to use wxStaticBox because they contain only simple
+//  widgets (buttons, text controls, choice, spin) that are safe
+//  inside a GtkFrame.
 // ============================================================
 #include "MainFrame.h"
 #include <wx/aboutdlg.h>
 #include <wx/stdpaths.h>
 #include <wx/filename.h>
-#include <wx/numdlg.h>
 #include <wx/datetime.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/panel.h>
 #include <wx/statbox.h>
+#include <wx/stattext.h>
 #include <wx/font.h>
 #include <wx/colour.h>
 #include <wx/fileconf.h>
-#include <wx/settings.h>   // wxSystemSettings — for dark-mode-safe colours
+#include <wx/settings.h>
+#include "Events.h"
 
-static const wxString APP_VERSION = "1.2.3";
-static const int      TIMER_MS    = 1000; // status-bar refresh
+static const wxString APP_VERSION = "1.3.0";
+static const int      TIMER_MS    = 1000;
 
-// ============================================================
-// Event table
-// ============================================================
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
-    EVT_BUTTON(ID_CONNECT,      MainFrame::OnConnect)
-    EVT_BUTTON(ID_DISCONNECT,   MainFrame::OnDisconnect)
-    EVT_BUTTON(ID_TOGGLE_LOG,   MainFrame::OnToggleLog)
-    EVT_BUTTON(ID_CHOOSE_FILE,  MainFrame::OnChooseLogFile)
-    EVT_BUTTON(ID_CLEAR_LOG,    MainFrame::OnClearLog)
-    EVT_BUTTON(ID_REFRESH_PORTS,MainFrame::OnRefreshPorts)
-    EVT_MENU(wxID_EXIT,         MainFrame::OnExit)
-    EVT_MENU(wxID_ABOUT,        MainFrame::OnAbout)
-    EVT_CLOSE(                  MainFrame::OnClose)
-    EVT_TIMER(ID_TIMER,         MainFrame::OnTimer)
+    EVT_BUTTON(ID_CONNECT,       MainFrame::OnConnect)
+    EVT_BUTTON(ID_DISCONNECT,    MainFrame::OnDisconnect)
+    EVT_BUTTON(ID_TOGGLE_LOG,    MainFrame::OnToggleLog)
+    EVT_BUTTON(ID_CHOOSE_FILE,   MainFrame::OnChooseLogFile)
+    EVT_BUTTON(ID_CLEAR_LOG,     MainFrame::OnClearLog)
+    EVT_BUTTON(ID_REFRESH_PORTS, MainFrame::OnRefreshPorts)
+    EVT_MENU(wxID_EXIT,          MainFrame::OnExit)
+    EVT_MENU(wxID_ABOUT,         MainFrame::OnAbout)
+    EVT_CLOSE(                   MainFrame::OnClose)
+    EVT_TIMER(ID_TIMER,          MainFrame::OnTimer)
     EVT_COMMAND(wxID_ANY, EVT_DMM_READING, MainFrame::OnDmmReading)
     EVT_COMMAND(wxID_ANY, EVT_DMM_ERROR,   MainFrame::OnDmmError)
 wxEND_EVENT_TABLE()
 
 // ============================================================
-// Constructor
+// Constructor / Destructor
 // ============================================================
 MainFrame::MainFrame(const wxString& title)
-    : wxFrame(nullptr, wxID_ANY, title,
-              wxDefaultPosition, wxSize(820, 640))
+    : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(820, 640))
     , m_timer(this, ID_TIMER)
 {
     BuildMenuBar();
@@ -51,7 +73,7 @@ MainFrame::MainFrame(const wxString& title)
     Centre();
     m_timer.Start(TIMER_MS);
     UpdatePortList();
-    LoadSettings();       // restore last port, log file path
+    LoadSettings();
     UpdateStatusBar();
 }
 
@@ -62,188 +84,177 @@ MainFrame::~MainFrame()
 }
 
 // ============================================================
-// Menu
-// ============================================================
-void MainFrame::BuildMenuBar()
-{
-    wxMenuBar* mb = new wxMenuBar;
-
-    wxMenu* mFile = new wxMenu;
-    mFile->Append(wxID_EXIT, "E&xit\tAlt+F4");
-
-    wxMenu* mHelp = new wxMenu;
-    mHelp->Append(wxID_ABOUT, "&About...");
-
-    mb->Append(mFile, "&File");
-    mb->Append(mHelp, "&Help");
-    SetMenuBar(mb);
-}
-
-// ============================================================
-// UI layout
+// BuildUI
 // ============================================================
 void MainFrame::BuildUI()
 {
-    // ---- Status bar ----
     m_statusBar = CreateStatusBar(3);
     int widths[] = { -1, 160, 140 };
     m_statusBar->SetStatusWidths(3, widths);
 
-    wxPanel* root = new wxPanel(this);
+    wxPanel*    root      = new wxPanel(this);
     wxBoxSizer* rootSizer = new wxBoxSizer(wxVERTICAL);
 
-    // ================================================================
-    // TOP SECTION: Port selector + connection controls
-    // ================================================================
-    wxStaticBox*      connBox   = new wxStaticBox(root, wxID_ANY, "Serial Port");
-    wxStaticBoxSizer* connSizer = new wxStaticBoxSizer(connBox, wxHORIZONTAL);
-
-    // On GTK 3, children of a wxStaticBoxSizer MUST be parented to the
-    // wxStaticBox itself (not to the containing panel). If they are parented
-    // to the panel, GTK's internal widget tree is inconsistent and calling
-    // gtk_widget_set_sensitive() (i.e. Enable()) triggers a
-    // gtk_box_gadget_distribute assertion and segfault.
-    connSizer->Add(new wxStaticText(connBox, wxID_ANY, "Port:"),
-                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-
-    m_portChoice = new wxChoice(connBox, wxID_ANY, wxDefaultPosition, wxSize(180, -1));
-    connSizer->Add(m_portChoice, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-
-    m_btnRefresh = new wxButton(connBox, ID_REFRESH_PORTS, "Refresh",
-                                wxDefaultPosition, wxSize(72, -1));
-    connSizer->Add(m_btnRefresh, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 14);
-
-    connSizer->Add(new wxStaticText(connBox, wxID_ANY, "Poll (ms):"),
-                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
-
-    m_spinDelay = new wxSpinCtrl(connBox, wxID_ANY, "200",
-                                 wxDefaultPosition, wxSize(72, -1),
-                                 wxSP_ARROW_KEYS, 50, 5000, 200);
-    connSizer->Add(m_spinDelay, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 14);
-
-    m_btnConnect = new wxButton(connBox, ID_CONNECT, "Connect",
-                                wxDefaultPosition, wxSize(90, -1));
-    m_btnConnect->SetForegroundColour(wxColour(0, 128, 0));
-    connSizer->Add(m_btnConnect, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-
-    m_btnDisconnect = new wxButton(connBox, ID_DISCONNECT, "Disconnect",
-                                   wxDefaultPosition, wxSize(90, -1));
-    m_btnDisconnect->SetForegroundColour(wxColour(180, 0, 0));
-    m_btnDisconnect->Enable(false);
-    connSizer->Add(m_btnDisconnect, 0, wxALIGN_CENTER_VERTICAL);
-
-    rootSizer->Add(connSizer, 0, wxEXPAND | wxALL, 8);
-
-    // ================================================================
-    // MIDDLE: Big reading display panel
-    // ================================================================
-    wxStaticBox*      readBox   = new wxStaticBox(root, wxID_ANY, "Live Reading");
-    wxStaticBoxSizer* readSizer = new wxStaticBoxSizer(readBox, wxVERTICAL);
-
-    // Mode label (e.g. "DC Voltage")
-    m_lblMode = new wxStaticText(readBox, wxID_ANY, "---",
-                                 wxDefaultPosition, wxDefaultSize,
-                                 wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
+    // ----------------------------------------------------------
+    // Serial Port  (wxStaticBox is safe here — simple children only)
+    // ----------------------------------------------------------
     {
-        wxFont f = m_lblMode->GetFont();
-        f.SetPointSize(16);
-        f.SetWeight(wxFONTWEIGHT_BOLD);
-        m_lblMode->SetFont(f);
+        wxStaticBox*      box   = new wxStaticBox(root, wxID_ANY, "Serial Port");
+        wxStaticBoxSizer* sizer = new wxStaticBoxSizer(box, wxHORIZONTAL);
+
+        sizer->Add(new wxStaticText(box, wxID_ANY, "Port:"),
+                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+
+        m_portChoice = new wxChoice(box, wxID_ANY,
+                                    wxDefaultPosition, wxSize(180, -1));
+        sizer->Add(m_portChoice, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+
+        m_btnRefresh = new wxButton(box, ID_REFRESH_PORTS, "Refresh",
+                                    wxDefaultPosition, wxSize(72, -1));
+        sizer->Add(m_btnRefresh, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 14);
+
+        sizer->Add(new wxStaticText(box, wxID_ANY, "Poll (ms):"),
+                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+
+        m_spinDelay = new wxSpinCtrl(box, wxID_ANY, "200",
+                                     wxDefaultPosition, wxSize(72, -1),
+                                     wxSP_ARROW_KEYS, 50, 5000, 200);
+        m_spinDelay->SetMinSize(wxSize(90, 28));
+        m_spinDelay->SetInitialSize(wxSize(90, 28));
+        m_spinDelay->InvalidateBestSize();
+        sizer->Add(m_spinDelay, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 14);
+
+        m_btnConnect = new wxButton(box, ID_CONNECT, "Connect",
+                                    wxDefaultPosition, wxSize(90, -1));
+        m_btnConnect->SetForegroundColour(wxColour(0, 128, 0));
+        sizer->Add(m_btnConnect, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+
+        m_btnDisconnect = new wxButton(box, ID_DISCONNECT, "Disconnect",
+                                       wxDefaultPosition, wxSize(90, -1));
+        m_btnDisconnect->SetForegroundColour(wxColour(180, 0, 0));
+        m_btnDisconnect->Enable(false);
+        sizer->Add(m_btnDisconnect, 0, wxALIGN_CENTER_VERTICAL);
+
+        rootSizer->Add(sizer, 0, wxEXPAND | wxALL, 8);
+    }
+
+    // ----------------------------------------------------------
+    // Live Reading  (wxStaticBox safe — simple children only)
+    // ----------------------------------------------------------
+    {
+        wxStaticBox*      box   = new wxStaticBox(root, wxID_ANY, "Live Reading");
+        wxStaticBoxSizer* sizer = new wxStaticBoxSizer(box, wxVERTICAL);
+
+        m_lblMode = new wxStaticText(box, wxID_ANY, "---",
+                                     wxDefaultPosition, wxDefaultSize,
+                                     wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
+        m_lblMode->SetFont(wxFont(16, wxFONTFAMILY_DEFAULT,
+                                  wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
         m_lblMode->SetForegroundColour(wxColour(60, 60, 180));
-    }
-    readSizer->Add(m_lblMode, 0, wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 6);
+        sizer->Add(m_lblMode, 0, wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 6);
 
-    // Reading value (large 7-segment-style)
-    m_lblReading = new wxStaticText(readBox, wxID_ANY, "----",
-                                    wxDefaultPosition, wxDefaultSize,
-                                    wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-    {
-        wxFont f = m_lblReading->GetFont();
-        f.SetPointSize(54);
-        f.SetWeight(wxFONTWEIGHT_BOLD);
-        f.SetFamily(wxFONTFAMILY_TELETYPE);
-        m_lblReading->SetFont(f);
+        m_lblReading = new wxStaticText(box, wxID_ANY, "----",
+                                        wxDefaultPosition, wxDefaultSize,
+                                        wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
+        m_lblReading->SetFont(wxFont(64, wxFONTFAMILY_TELETYPE,
+                                     wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
         m_lblReading->SetForegroundColour(wxColour(20, 160, 20));
-    }
-    readSizer->Add(m_lblReading, 0, wxEXPAND | wxLEFT | wxRIGHT, 6);
+        sizer->Add(m_lblReading, 0, wxEXPAND | wxLEFT | wxRIGHT, 6);
 
-    // Units
-    m_lblUnits = new wxStaticText(readBox, wxID_ANY, "",
-                                  wxDefaultPosition, wxDefaultSize,
-                                  wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-    {
-        wxFont f = m_lblUnits->GetFont();
-        f.SetPointSize(22);
-        f.SetWeight(wxFONTWEIGHT_NORMAL);
-        m_lblUnits->SetFont(f);
+        m_lblUnits = new wxStaticText(box, wxID_ANY, "",
+                                      wxDefaultPosition, wxDefaultSize,
+                                      wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
+        m_lblUnits->SetFont(wxFont(22, wxFONTFAMILY_DEFAULT,
+                                   wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
         m_lblUnits->SetForegroundColour(wxColour(100, 100, 100));
+        sizer->Add(m_lblUnits, 0, wxEXPAND | wxBOTTOM | wxLEFT | wxRIGHT, 6);
+
+        rootSizer->Add(sizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
     }
-    readSizer->Add(m_lblUnits, 0, wxEXPAND | wxBOTTOM | wxLEFT | wxRIGHT, 6);
 
-    rootSizer->Add(readSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    // ----------------------------------------------------------
+    // CSV Logging controls  (wxStaticBox safe — simple children only)
+    // ----------------------------------------------------------
+    {
+        wxStaticBox*      box   = new wxStaticBox(root, wxID_ANY, "CSV Logging");
+        wxStaticBoxSizer* sizer = new wxStaticBoxSizer(box, wxHORIZONTAL);
 
-    // ================================================================
-    // LOGGING CONTROLS
-    // ================================================================
-    wxStaticBox*      logCtrlBox   = new wxStaticBox(root, wxID_ANY, "CSV Logging");
-    wxStaticBoxSizer* logCtrlSizer = new wxStaticBoxSizer(logCtrlBox, wxHORIZONTAL);
+        sizer->Add(new wxStaticText(box, wxID_ANY, "File:"),
+                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
 
-    logCtrlSizer->Add(new wxStaticText(logCtrlBox, wxID_ANY, "File:"),
-                      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+        m_txtLogFile = new wxTextCtrl(box, wxID_ANY, "Protek-506-log.csv",
+                                      wxDefaultPosition, wxDefaultSize,
+                                      wxTE_READONLY);
+        sizer->Add(m_txtLogFile, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
 
-    m_txtLogFile = new wxTextCtrl(logCtrlBox, wxID_ANY, "Protek-506-log.csv",
-                                  wxDefaultPosition, wxDefaultSize,
-                                  wxTE_READONLY);
-    logCtrlSizer->Add(m_txtLogFile, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        m_btnChooseFile = new wxButton(box, ID_CHOOSE_FILE, "Browse...",
+                                       wxDefaultPosition, wxSize(78, -1));
+        sizer->Add(m_btnChooseFile, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
 
-    m_btnChooseFile = new wxButton(logCtrlBox, ID_CHOOSE_FILE, "Browse\xe2\x80\xa6",
-                                   wxDefaultPosition, wxSize(78, -1));
-    logCtrlSizer->Add(m_btnChooseFile, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
+        m_btnToggleLog = new wxButton(box, ID_TOGGLE_LOG, "Start Logging",
+                                      wxDefaultPosition, wxSize(110, -1));
+        m_btnToggleLog->SetForegroundColour(wxColour(0, 128, 0));
+        sizer->Add(m_btnToggleLog, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
 
-    m_btnToggleLog = new wxButton(logCtrlBox, ID_TOGGLE_LOG, "Start Logging",
-                                  wxDefaultPosition, wxSize(110, -1));
-    m_btnToggleLog->SetForegroundColour(wxColour(0, 128, 0));
-    logCtrlSizer->Add(m_btnToggleLog, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        m_btnClearLog = new wxButton(box, ID_CLEAR_LOG, "Clear Table",
+                                     wxDefaultPosition, wxSize(90, -1));
+        sizer->Add(m_btnClearLog, 0, wxALIGN_CENTER_VERTICAL);
 
-    m_btnClearLog = new wxButton(logCtrlBox, ID_CLEAR_LOG, "Clear Table",
-                                 wxDefaultPosition, wxSize(90, -1));
-    logCtrlSizer->Add(m_btnClearLog, 0, wxALIGN_CENTER_VERTICAL);
+        rootSizer->Add(sizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    }
 
-    rootSizer->Add(logCtrlSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    // ----------------------------------------------------------
+    // Reading Log table
+    //
+    // NO wxStaticBox here.  wxListCtrl (GtkTreeView inside
+    // GtkScrolledWindow) must NOT be a descendant of any GtkFrame
+    // on GTK3 3.24.  We emulate the group-box look with a bold
+    // wxStaticText title and a sunken wxPanel container.
+    // ----------------------------------------------------------
+    {
+        // Title label styled to match the other group boxes
+        wxStaticText* lbl = new wxStaticText(root, wxID_ANY, "Reading Log");
+        wxFont f = lbl->GetFont();
+        f.SetWeight(wxFONTWEIGHT_BOLD);
+        lbl->SetFont(f);
+        rootSizer->Add(lbl, 0, wxLEFT | wxRIGHT | wxTOP, 8);
 
-    // ================================================================
-    // LOG TABLE
-    // ================================================================
-    wxStaticBox*      tableBox   = new wxStaticBox(root, wxID_ANY, "Reading Log");
-    wxStaticBoxSizer* tableSizer = new wxStaticBoxSizer(tableBox, wxVERTICAL);
+        // Container panel — plain GtkBox underneath, no GtkFrame
+        wxPanel* tablePanel = new wxPanel(root, wxID_ANY,
+                                          wxDefaultPosition, wxDefaultSize,
+                                          wxBORDER_SUNKEN);
 
-    m_listLog = new wxListCtrl(tableBox, wxID_ANY,
-                               wxDefaultPosition, wxDefaultSize,
-                               wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
-                               wxBORDER_SUNKEN);
+        // wxListCtrl directly inside the plain panel — safe on GTK3
+        m_listLog = new wxListCtrl(tablePanel, wxID_ANY,
+                                   wxDefaultPosition, wxDefaultSize,
+                                   wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
+                                   wxBORDER_NONE);
 
-    // Columns: #, Date, Time, Mode, Reading, Units
-    m_listLog->InsertColumn(0, "#",       wxLIST_FORMAT_RIGHT,  50);
-    m_listLog->InsertColumn(1, "Date",    wxLIST_FORMAT_LEFT,  100);
-    m_listLog->InsertColumn(2, "Time",    wxLIST_FORMAT_LEFT,  115);
-    m_listLog->InsertColumn(3, "Mode",    wxLIST_FORMAT_LEFT,   70);
-    m_listLog->InsertColumn(4, "Reading", wxLIST_FORMAT_RIGHT, 110);
-    m_listLog->InsertColumn(5, "Units",   wxLIST_FORMAT_LEFT,   90);
+        m_listLog->InsertColumn(0, "#",       wxLIST_FORMAT_RIGHT,  50);
+        m_listLog->InsertColumn(1, "Date",    wxLIST_FORMAT_LEFT,  100);
+        m_listLog->InsertColumn(2, "Time",    wxLIST_FORMAT_LEFT,  115);
+        m_listLog->InsertColumn(3, "Mode",    wxLIST_FORMAT_LEFT,   70);
+        m_listLog->InsertColumn(4, "Reading", wxLIST_FORMAT_RIGHT, 110);
+        m_listLog->InsertColumn(5, "Units",   wxLIST_FORMAT_LEFT,   90);
 
-    tableSizer->Add(m_listLog, 1, wxEXPAND | wxALL, 4);
-    rootSizer->Add(tableSizer, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        wxBoxSizer* ps = new wxBoxSizer(wxVERTICAL);
+        ps->Add(m_listLog, 1, wxEXPAND | wxALL, 2);
+        tablePanel->SetSizer(ps);
+
+        rootSizer->Add(tablePanel, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    }
 
     root->SetSizer(rootSizer);
     rootSizer->Fit(root);
 }
 
 // ============================================================
-// Port list refresh
+// Port list
 // ============================================================
 void MainFrame::UpdatePortList()
 {
     m_portChoice->Clear();
-    std::vector<PortInfo> ports = SerialPort::ListPorts();
+    auto ports = SerialPort::ListPorts();
     if (ports.empty())
     {
         m_portChoice->Append("(no ports found)");
@@ -254,83 +265,65 @@ void MainFrame::UpdatePortList()
     {
         wxString label = wxString::FromUTF8(p.device.c_str());
         if (!p.description.empty() && p.description != p.device)
-            label += " — " + wxString::FromUTF8(p.description.c_str());
-        m_portChoice->Append(label, new wxStringClientData(
-            wxString::FromUTF8(p.device.c_str())));
+            label += " - " + wxString::FromUTF8(p.description.c_str());
+        m_portChoice->Append(label,
+            new wxStringClientData(wxString::FromUTF8(p.device.c_str())));
     }
     m_portChoice->SetSelection(0);
 }
 
 // ============================================================
-// Connection
+// Connect / Disconnect
 // ============================================================
-void MainFrame::OnRefreshPorts(wxCommandEvent&)
-{
-    UpdatePortList();
-}
+void MainFrame::OnRefreshPorts(wxCommandEvent&) { UpdatePortList(); }
 
 void MainFrame::OnConnect(wxCommandEvent&)
 {
-    if (m_connected) return;
-
-    int sel = m_portChoice->GetSelection();
-    if (sel == wxNOT_FOUND)
+    wxString portStr = m_portChoice->GetStringSelection();
+    if (portStr.IsEmpty())
     {
-        wxMessageBox("Please select a serial port.", "No Port Selected",
-                     wxICON_WARNING | wxOK, this);
+        wxMessageBox("Please select a serial port first.",
+                     "No Port Selected", wxOK | wxICON_WARNING, this);
         return;
     }
 
-    wxStringClientData* data =
-        dynamic_cast<wxStringClientData*>(m_portChoice->GetClientObject(sel));
-    wxString port = data ? data->GetData() : m_portChoice->GetStringSelection();
+    wxClientData* cd = m_portChoice->GetClientObject(m_portChoice->GetSelection());
+    wxString device  = cd ? static_cast<wxStringClientData*>(cd)->GetData() : portStr;
+    int pollMs       = m_spinDelay->GetValue();
 
-    // Strip " — description" if present (fallback when client data missing)
-    int dash = port.Find(" \xe2\x80\x94 "); // em-dash
-    if (dash != wxNOT_FOUND) port = port.Left(dash);
+    if (m_thread) StopReaderThread();
 
-    int delayMs = m_spinDelay->GetValue();
-
-    m_thread = new ReaderThread(this, port.ToStdString(), delayMs);
-    if (m_thread->Create() != wxTHREAD_NO_ERROR ||
-        m_thread->Run()    != wxTHREAD_NO_ERROR)
+    m_thread = new ReaderThread(this, device.ToStdString(), pollMs);
+    if (m_thread->Create() != wxTHREAD_NO_ERROR)
     {
-        wxMessageBox("Failed to start reader thread.", "Error",
-                     wxICON_ERROR | wxOK, this);
-        delete m_thread;
-        m_thread = nullptr;
-        return;
+        wxMessageBox("Cannot create reader thread.",
+                     "Thread Error", wxOK | wxICON_ERROR, this);
+        delete m_thread; m_thread = nullptr; return;
     }
-
+    wxMilliSleep(50);
+    if (m_thread->Run() != wxTHREAD_NO_ERROR)
+    {
+        wxMessageBox("Cannot start reader thread.",
+                     "Thread Error", wxOK | wxICON_ERROR, this);
+        delete m_thread; m_thread = nullptr; return;
+    }
     SetConnected(true);
-    SaveSettings();   // persist the chosen port
-    m_statusBar->SetStatusText(
-        wxString::Format("Connected: %s", port), 1);
+    m_statusBar->SetStatusText("Connecting to " + device + "...", 1);
 }
 
 void MainFrame::OnDisconnect(wxCommandEvent&)
 {
     StopReaderThread();
     SetConnected(false);
-    m_statusBar->SetStatusText("Disconnected", 1);
-    m_lblMode->SetLabel("---");
-    m_lblReading->SetLabel("----");
-    m_lblUnits->SetLabel("");
 }
 
 void MainFrame::StopReaderThread()
 {
-    if (m_thread)
-    {
-        // fix #2: Thread is JOINABLE.  Signal it to stop then Wait()
-        // so we are guaranteed it has exited — and therefore will never
-        // call wxQueueEvent on this (possibly already-destroyed) window —
-        // before we null the pointer.
-        m_thread->RequestStop();
-        m_thread->Wait();   // blocks ≤ ~1 s (serial read timeout)
-        delete m_thread;
-        m_thread = nullptr;
-    }
+    if (!m_thread) return;
+    m_thread->RequestStop();
+    m_thread->Wait();
+    delete m_thread;
+    m_thread = nullptr;
 }
 
 void MainFrame::SetConnected(bool connected)
@@ -350,10 +343,8 @@ void MainFrame::OnToggleLog(wxCommandEvent&)
 {
     if (!m_logging)
     {
-        // Start logging
         wxString path = m_txtLogFile->GetValue();
-        if (path.IsEmpty())
-            path = "Protek-506-log.csv";
+        if (path.IsEmpty()) path = "Protek-506-log.csv";
 
         if (!m_logger.Open(path.ToStdString()))
         {
@@ -364,18 +355,16 @@ void MainFrame::OnToggleLog(wxCommandEvent&)
             return;
         }
 
-        m_logging = true;
-        m_readingCount = 0;   // count from 1 when first row is appended
+        m_logging      = true;
+        m_readingCount = 0;
         m_btnToggleLog->SetLabel("Stop Logging");
         m_btnToggleLog->SetForegroundColour(wxColour(180, 0, 0));
         m_btnChooseFile->Enable(false);
         m_statusBar->SetStatusText(
-            wxString::Format("Logging → %s",
-                wxFileName(path).GetFullName()), 2);
+            "Logging -> " + wxFileName(path).GetFullName(), 2);
     }
     else
     {
-        // Stop logging
         m_logger.Close();
         m_logging = false;
         m_btnToggleLog->SetLabel("Start Logging");
@@ -388,12 +377,12 @@ void MainFrame::OnToggleLog(wxCommandEvent&)
 void MainFrame::OnChooseLogFile(wxCommandEvent&)
 {
     wxFileDialog dlg(this, "Choose CSV log file", "", "Protek-506-log.csv",
-                     "CSV files (*.csv)|*.csv|Text files (*.txt)|*.txt|All files (*.*)|*.*",
+                     "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
                      wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
     if (dlg.ShowModal() == wxID_OK)
     {
         m_txtLogFile->SetValue(dlg.GetPath());
-        SaveSettings();   // persist the new log file path
+        SaveSettings();
     }
 }
 
@@ -405,101 +394,67 @@ void MainFrame::OnClearLog(wxCommandEvent&)
 }
 
 // ============================================================
-// DMM events from reader thread
+// Readings from the reader thread
 // ============================================================
 void MainFrame::OnDmmReading(wxCommandEvent& evt)
 {
-    // Unpack pipe-delimited: date|time|modeName|rawValue|units|rawLine
-    wxString packed = evt.GetString();
-    wxArrayString parts = wxSplit(packed, '|');
+    wxArrayString parts = wxSplit(evt.GetString(), '|');
     if (parts.GetCount() < 5) return;
 
-    wxString date     = parts[0];
-    wxString time     = parts[1];
-    wxString modeName = parts[2];
-    wxString value    = parts[3];
-    wxString units    = parts[4];
-    wxString rawLine  = (parts.GetCount() > 5) ? parts[5] : "";
+    wxString date  = parts[0];
+    wxString time  = parts[1];
+    wxString mode  = parts[2];
+    wxString value = parts[3];
+    wxString units = parts[4];
 
-    m_lastRawLine = rawLine;
+    // Strip a single leading zero before a non-decimal digit
+    if (value.Length() > 1 && value[0] == '0' && value[1] != '.')
+        value = value.Mid(1);
 
-    // Always update the live display regardless of logging state
-    DisplayReading(modeName, value, units);
+    DisplayReading(mode, value, units);
 
-    // Only count and append rows while logging is active
-    if (m_logging)
+    if (!m_logging || !m_logger.IsOpen()) return;
+
+    m_logger.Write(date.ToStdString(), time.ToStdString(),
+                   mode.ToStdString(), value.ToStdString(),
+                   units.ToStdString());
+
+    if (!m_logger.WriteOk())
     {
-        ++m_readingCount;
-        AppendLogRow(date, time, modeName, value, units);
+        m_logging = false;
+        wxString err = m_logger.LastError();
+        CallAfter([this, err]() {
+            if (!IsBeingDeleted())
+                wxMessageBox("CSV write error:\n\n" + err +
+                             "\n\nLogging stopped.",
+                             "Log Write Error", wxICON_ERROR | wxOK, this);
+        });
+        return;
     }
 
-    // Write to CSV if logging
-    if (m_logging && m_logger.IsOpen())
-    {
-        m_logger.Write(date.ToStdString(),
-                       time.ToStdString(),
-                       modeName.ToStdString(),
-                       value.ToStdString(),
-                       units.ToStdString());
-
-        // fix #12: Detect write failure (disk full, I/O error, etc.)
-        // IsOpen() returns false once CsvLogger::Write closes the file on error.
-        if (!m_logger.IsOpen())
-        {
-            m_logging = false;
-            m_btnToggleLog->SetLabel("Start Logging");
-            m_btnToggleLog->SetForegroundColour(wxColour(0, 128, 0));
-            m_btnChooseFile->Enable(true);
-            m_statusBar->SetStatusText("", 2);
-
-            wxString errMsg = m_logger.LastError();
-            CallAfter([this, errMsg]() {
-                if (IsBeingDeleted()) return;
-                wxMessageBox(
-                    wxString::Format("CSV logging stopped due to a write error:\n\n%s\n\n"
-                                     "Check available disk space.", errMsg),
-                    "Log Write Error", wxICON_ERROR | wxOK, this);
-            });
-        }
-    }
-
+    AppendLogRow(date, time, mode, value, units);
+    ++m_readingCount;
     UpdateStatusBar();
 }
 
 void MainFrame::OnDmmError(wxCommandEvent& evt)
 {
     wxString msg = evt.GetString();
+    m_statusBar->SetStatusText("Error: " + msg, 1);
 
-    // Update status bar with error
-    m_statusBar->SetStatusText(wxString::Format("Error: %s", msg), 1);
+    if (!m_connected) return;
+    SetConnected(false);
+    m_lblMode->SetLabel("ERROR");
+    m_lblMode->SetForegroundColour(wxColour(200, 0, 0));
+    m_lblReading->SetLabel("----");
+    m_lblUnits->SetLabel("");
 
-    // If we get an error the thread has stopped; update UI
-    if (m_connected)
-    {
-        SetConnected(false);
-        m_lblMode->SetLabel("ERROR");
-        m_lblMode->SetForegroundColour(wxColour(200, 0, 0));
-        m_lblReading->SetLabel("----");
-        m_lblUnits->SetLabel("");
-
-        // fix #11: The original lambda captured raw 'this', which could
-        // be dangling if the window is closed before CallAfter fires.
-        // Guard with IsBeingDeleted() — safe because CallAfter runs on
-        // the main thread where wxWindow lifetime is single-threaded.
-        wxString errMsg = msg;
-        CallAfter([this, errMsg]() {
-            if (IsBeingDeleted()) return;   // window already closing
-            wxMessageBox(wxString::Format(
-                "Connection error:\n\n%s\n\nCheck that:\n"
-                " \xe2\x80\xa2 The meter is powered on\n"
-                " \xe2\x80\xa2 RS232 mode is enabled on the meter\n"
-                " \xe2\x80\xa2 The correct serial port is selected\n"
-                " \xe2\x80\xa2 The cable is connected",
-                errMsg),
-                "DMM Connection Error",
-                wxICON_ERROR | wxOK, this);
-        });
-    }
+    CallAfter([this, msg]() {
+        if (!IsBeingDeleted())
+            wxMessageBox("Connection error:\n\n" + msg +
+                         "\n\nCheck cable, port, and meter RS232 mode.",
+                         "DMM Connection Error", wxICON_ERROR | wxOK, this);
+    });
 }
 
 // ============================================================
@@ -509,107 +464,78 @@ void MainFrame::DisplayReading(const wxString& modeName,
                                const wxString& value,
                                const wxString& units)
 {
-    // Mode label mapping to friendly strings
     wxString friendly = modeName;
-    if      (modeName == "DC")   friendly = "DC Voltage / Current";
-    else if (modeName == "AC")   friendly = "AC Voltage / Current";
-    else if (modeName == "RES")  friendly = "Resistance";
-    else if (modeName == "FREQ") friendly = "Frequency";
-    else if (modeName == "CAP")  friendly = "Capacitance";
-    else if (modeName == "IND")  friendly = "Inductance";
-    else if (modeName == "TEMP") friendly = "Temperature";
-    else if (modeName == "DIODE")friendly = "Diode / Continuity";
+    if      (modeName == "DC")    friendly = "DC Voltage / Current";
+    else if (modeName == "AC")    friendly = "AC Voltage / Current";
+    else if (modeName == "RES")   friendly = "Resistance";
+    else if (modeName == "FREQ")  friendly = "Frequency";
+    else if (modeName == "CAP")   friendly = "Capacitance";
+    else if (modeName == "IND")   friendly = "Inductance";
+    else if (modeName == "TEMP")  friendly = "Temperature";
+    else if (modeName == "DIODE") friendly = "Diode";
+    else if (modeName == "CONT")  friendly = "Continuity";
+    else if (modeName == "LOGIC") friendly = "Logic Level";
 
     m_lblMode->SetLabel(friendly);
     m_lblReading->SetLabel(value.IsEmpty() ? "----" : value);
     m_lblUnits->SetLabel(units);
 
-    // Colour the reading based on state
-    wxColour readColour(20, 160, 20); // normal green
-    if (value == "OL" || value == "OPEN")
-        readColour = wxColour(200, 120, 0);
-    else if (value == "SHORT")
-        readColour = wxColour(180, 0, 0);
+    wxColour col(20, 160, 20);
+    if (value == "OL" || value == "OPEN") col = wxColour(200, 120, 0);
+    else if (value == "SHORT")            col = wxColour(180,   0, 0);
     else if (value == "High" || value == "Low" || value == "----")
-        readColour = wxColour(0, 120, 200);
-
-    m_lblReading->SetForegroundColour(readColour);
+                                          col = wxColour(  0, 120, 200);
+    m_lblReading->SetForegroundColour(col);
     m_lblMode->SetForegroundColour(wxColour(60, 60, 180));
 
-    // Force re-layout for the reading panel
     m_lblReading->GetParent()->Layout();
     m_lblReading->GetParent()->Refresh();
 }
 
 // ============================================================
-// Log table
+// Log table row append
 // ============================================================
 void MainFrame::AppendLogRow(const wxString& date, const wxString& time,
                               const wxString& mode, const wxString& reading,
                               const wxString& units)
 {
     long row = m_listLog->GetItemCount();
-
-    // Keep table from growing unboundedly (keep last 5000 rows)
     if (row >= 5000)
     {
         m_listLog->DeleteItem(0);
         row = m_listLog->GetItemCount();
     }
 
-    long idx = m_listLog->InsertItem(row, wxString::Format("%ld", m_readingCount));
+    // InsertItem returns -1 on failure; guard all subsequent calls.
+    long idx = m_listLog->InsertItem(row,
+                   wxString::Format("%ld", m_readingCount + 1));
+    if (idx < 0) return;
+
     m_listLog->SetItem(idx, 1, date);
     m_listLog->SetItem(idx, 2, time);
     m_listLog->SetItem(idx, 3, mode);
     m_listLog->SetItem(idx, 4, reading);
     m_listLog->SetItem(idx, 5, units);
 
-    // ----------------------------------------------------------------
-    // Dark-mode-safe alternating row colours (fix #3).
-    //
-    // Problem: hardcoded light backgrounds (white / pale blue) remain
-    // light even when macOS switches to Dark mode.  The system then
-    // renders the list text in a light colour too, making it invisible
-    // against the light row background.
-    //
-    // Solution: derive both the background and the text colour from the
-    // wxSystemSettings palette, which respects the current OS appearance.
-    //
-    //   wxSYS_COLOUR_LISTBOX      — the list's natural background
-    //   wxSYS_COLOUR_LISTBOXTEXT  — the list's natural foreground
-    //   wxSYS_COLOUR_HIGHLIGHT    — (avoided; only correct for selected)
-    //
-    // For the alternating stripe we blend the list background 90 % with
-    // the window-highlight colour (5 % in dark mode feels about right).
-    // A helper lambda does the blend in a single expression.
-    // ----------------------------------------------------------------
-    wxColour base  = wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOX);
-    wxColour text  = wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOXTEXT);
+    // Dark-mode-safe alternating row colours from system palette
+    wxColour base   = wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOX);
+    wxColour text   = wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOXTEXT);
+    wxColour accent = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
 
-    // Blend: result = base * (1-t) + accent * t,  t = 0.08
     auto blend = [](wxColour a, wxColour b, double t) -> wxColour {
         return wxColour(
-            static_cast<unsigned char>(a.Red()   * (1.0 - t) + b.Red()   * t),
-            static_cast<unsigned char>(a.Green() * (1.0 - t) + b.Green() * t),
-            static_cast<unsigned char>(a.Blue()  * (1.0 - t) + b.Blue()  * t));
+            static_cast<unsigned char>(a.Red()   * (1-t) + b.Red()   * t),
+            static_cast<unsigned char>(a.Green() * (1-t) + b.Green() * t),
+            static_cast<unsigned char>(a.Blue()  * (1-t) + b.Blue()  * t));
     };
-
-    // Use the window background as the accent colour for the stripe so
-    // it contrasts gently in both light and dark mode.
-    wxColour accent = wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW);
     wxColour stripe = blend(base, accent, 0.35);
-
-    wxColour rowBg = (idx % 2 == 0) ? stripe : base;
-
-    m_listLog->SetItemBackgroundColour(idx, rowBg);
+    m_listLog->SetItemBackgroundColour(idx, (idx % 2 == 0) ? stripe : base);
     m_listLog->SetItemTextColour(idx, text);
-
-    // Auto-scroll to last row
     m_listLog->EnsureVisible(idx);
 }
 
 // ============================================================
-// Status bar
+// Status bar / Timer
 // ============================================================
 void MainFrame::UpdateStatusBar()
 {
@@ -617,36 +543,24 @@ void MainFrame::UpdateStatusBar()
         wxString::Format("Readings: %ld", m_readingCount), 0);
 }
 
-// ============================================================
-// Timer (periodic UI refresh)
-// ============================================================
 void MainFrame::OnTimer(wxTimerEvent&)
 {
     UpdateStatusBar();
     if (m_logging && m_logger.IsOpen())
-    {
         m_statusBar->SetStatusText(
-            wxString::Format("Logging (%ld rows) → %s",
+            wxString::Format("Logging (%ld rows) -> %s",
                 m_logger.RowCount(),
                 wxFileName(m_txtLogFile->GetValue()).GetFullName()), 2);
-    }
 }
 
 // ============================================================
-// INI persistence (fix: remember last port and log file path)
+// INI persistence
 // ============================================================
-
-// Returns the full path to Protek506Logger.ini.
-// On macOS/Linux this is in the user's config directory
-// (e.g. ~/.config/Protek506Logger/Protek506Logger.ini).
-// On Windows it uses %APPDATA%\Protek506Logger\Protek506Logger.ini.
-// If the directory doesn't exist wxFileConfig creates it.
 /*static*/ wxString MainFrame::IniPath()
 {
     wxFileName ini;
     ini.AssignDir(wxStandardPaths::Get().GetUserDataDir());
     ini.SetFullName("Protek506Logger.ini");
-    // Ensure the directory exists so wxFileConfig can write
     if (!ini.DirExists())
         wxFileName::Mkdir(ini.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
     return ini.GetFullPath();
@@ -654,57 +568,43 @@ void MainFrame::OnTimer(wxTimerEvent&)
 
 void MainFrame::SaveSettings()
 {
-    wxFileConfig cfg("Protek506Logger", wxEmptyString,
-                     IniPath(), wxEmptyString,
-                     wxCONFIG_USE_LOCAL_FILE);
-
-    // Save whichever port device string is currently selected
+    wxFileConfig cfg("Protek506Logger", wxEmptyString, IniPath(),
+                     wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
     int sel = m_portChoice->GetSelection();
     if (sel != wxNOT_FOUND)
     {
-        wxStringClientData* cd =
-            dynamic_cast<wxStringClientData*>(m_portChoice->GetClientObject(sel));
-        wxString device = cd ? cd->GetData() : m_portChoice->GetStringSelection();
-        cfg.Write("/Serial/LastPort", device);
+        auto* cd = dynamic_cast<wxStringClientData*>(
+                       m_portChoice->GetClientObject(sel));
+        cfg.Write("/Serial/LastPort",
+                  cd ? cd->GetData() : m_portChoice->GetStringSelection());
     }
-
-    // Save the log file path
     cfg.Write("/Logging/LastFile", m_txtLogFile->GetValue());
-
     cfg.Flush();
 }
 
 void MainFrame::LoadSettings()
 {
-    wxFileConfig cfg("Protek506Logger", wxEmptyString,
-                     IniPath(), wxEmptyString,
-                     wxCONFIG_USE_LOCAL_FILE);
+    wxFileConfig cfg("Protek506Logger", wxEmptyString, IniPath(),
+                     wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
 
-    // Restore last port — scan the choice items for a matching device string
     wxString lastPort;
     if (cfg.Read("/Serial/LastPort", &lastPort) && !lastPort.IsEmpty())
     {
         for (unsigned i = 0; i < m_portChoice->GetCount(); ++i)
         {
-            wxStringClientData* cd =
-                dynamic_cast<wxStringClientData*>(m_portChoice->GetClientObject(i));
-            wxString device = cd ? cd->GetData() : m_portChoice->GetString(i);
-            if (device == lastPort)
-            {
-                m_portChoice->SetSelection(i);
-                break;
-            }
+            auto* cd = dynamic_cast<wxStringClientData*>(
+                           m_portChoice->GetClientObject(i));
+            wxString dev = cd ? cd->GetData() : m_portChoice->GetString(i);
+            if (dev == lastPort) { m_portChoice->SetSelection(i); break; }
         }
     }
-
-    // Restore log file path
     wxString lastFile;
     if (cfg.Read("/Logging/LastFile", &lastFile) && !lastFile.IsEmpty())
         m_txtLogFile->SetValue(lastFile);
 }
 
 // ============================================================
-// About dialog
+// About
 // ============================================================
 void MainFrame::OnAbout(wxCommandEvent&)
 {
@@ -712,12 +612,11 @@ void MainFrame::OnAbout(wxCommandEvent&)
     info.SetName("Protek 506 DMM Logger");
     info.SetVersion(APP_VERSION);
     info.SetDescription(
-        "A cross-platform data logger for the Protek 506 Digital\n"
-        "Multimeter via its RS-232C serial interface.\n\n"
-        "Serial settings: 1200 baud, 7 data bits, 2 stop bits, no parity.\n\n"
-        "Remember to enable RS232 mode on the meter:\n"
-        "  MENU → RS232 → Enter");
-    info.SetCopyright("(C) 2026");
+        "Cross-platform data logger for the Protek 506\n"
+        "Digital Multimeter (DMM).\n\n"
+        "Enable RS232 on meter:\n"
+        "       MENU -> RS232 -> Enter");
+    info.SetCopyright("(C) 2025-2026");
     info.AddDeveloper("m3p5 - C++ with wxWidgets");
     wxAboutBox(info, this);
 }
@@ -725,15 +624,29 @@ void MainFrame::OnAbout(wxCommandEvent&)
 // ============================================================
 // Exit / Close
 // ============================================================
-void MainFrame::OnExit(wxCommandEvent&)
-{
-    Close(true);
-}
+void MainFrame::OnExit(wxCommandEvent&) { Close(true); }
 
 void MainFrame::OnClose(wxCloseEvent& evt)
 {
-    SaveSettings();   // persist port and log file path on every close
+    SaveSettings();
     StopReaderThread();
     if (m_logging) m_logger.Close();
-    evt.Skip(); // allow default close
+    evt.Skip();
+}
+
+// ============================================================
+// Menu bar
+// ============================================================
+void MainFrame::BuildMenuBar()
+{
+    wxMenu* fileMenu = new wxMenu;
+    fileMenu->Append(wxID_EXIT, "E&xit\tCtrl+Q");
+
+    wxMenu* helpMenu = new wxMenu;
+    helpMenu->Append(wxID_ABOUT, "&About...");
+
+    wxMenuBar* bar = new wxMenuBar;
+    bar->Append(fileMenu, "&File");
+    bar->Append(helpMenu, "&Help");
+    SetMenuBar(bar);
 }

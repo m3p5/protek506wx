@@ -24,7 +24,7 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 
 ## Current Release
 
-*  Version 1.2.3
+*  Version 1.3.0
 ---
 
 ## Meter Setup
@@ -186,13 +186,15 @@ protek506wx/
 │   ├── protek_506.jpg          # Picture of a Protek 506
 │   └── Protek506Logger.png     # Screenshot of the application
 ├── resources/
-│   └── win32.rc            # Windows version/icon resource
+│   ├── win32.rc            # Windows resource file
+│   └── protek506.ico       # Application icon
 └── src/
     ├── App.h / App.cpp         # wxApp entry point
     ├── MainFrame.h / .cpp      # Main application window
     ├── ReaderThread.h / .cpp   # Background serial-polling thread
     ├── DmmParser.h / .cpp      # Parses Protek 506 ASCII data format
     ├── CsvLogger.h / .cpp      # CSV file writer
+    ├── Events.h.               # Events header
     └── SerialPort.h / .cpp     # Cross-platform RS-232 wrapper
 ```
 

@@ -1,3 +1,11 @@
+Version 1.3.0
+- Most of the updates in this version were to resolve a crash condition on the Linux build:
+	- On GTK3 (Ubuntu 22.04 / 24.04, wxWidgets 3.2.x), wxStaticBox is implemented as a GtkFrame containing an internal GtkBox. When ANY widget that wraps a GtkScrolledWindow (including wxListCtrl, which is backed by GtkTreeView+GtkScrolledWindow) ends up as a descendant of a GtkFrame — even two or three levels deep — GTK3's size-allocation walk corrupts internal geometry state.  The corruption is silent (no assert, no stderr output) until the first call that touches row geometry after logging starts, at which point it SIGSEGV.
+
+    The only reliable fix on GTK3 3.24 is to keep the wxListCtrl completely outside every wxStaticBox in the widget tree.
+
+    This version replaces the "Reading Log" wxStaticBox+wxStaticBoxSizer with a plain wxBoxSizer.  A bold wxStaticText provides the group-box title, and the list sits in a simple wxPanel with a sunken border — visually equivalent, zero GtkFrame involvement. All other group boxes (Serial Port, Live Reading, CSV Logging) continue to use wxStaticBox because they contain only simple widgets (buttons, text controls, choice, spin) that are safe inside a GtkFrame.
+
 Version 1.2.3
 - MainFrame.cpp - Another fix to resolve a crash condition on Linux:
 	- (Critical): In BuildUI(), the parent argument for every child widget created inside a wxStaticBoxSizer was changed from root to the appropriate wxStaticBox variable: connBox, readBox, logCtrlBox, or tableBox. The four wxStaticBox objects themselves remain correctly parented to root. The Freeze/Thaw workaround was removed since it addressed only a symptom and is no longer necessary. This is the correct fix on macOS and Windows too — while those platforms don't crash, having the right parent is the specified behaviour.
