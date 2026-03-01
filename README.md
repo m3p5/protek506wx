@@ -33,8 +33,9 @@ Prerequisite steps for displaying/logging DMM readings:
 1. Connect the DB-9 RS-232 cable (or USB-serial adapter).
 2. Power on the Protek 506.
 3. Press **MENU** until the **RS232** annunciator blinks.
-4. Press **Enter** (↵) to activate RS232 mode.  
-   The **RS232**, **RX**, and **TX** annunciators will appear.
+4. Press **Enter** (↵) to activate RS232 mode.
+
+The **RS232** annunciator will appear, and the **RX** and **TX** annunciators will flash as data is read from the DMM.
 
 > **Windows physical RS-232:** You may need a **null-modem** (crossover)
 > cable if using the PC's native COM port directly.
