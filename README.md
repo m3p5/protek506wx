@@ -18,12 +18,12 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 - Cross-platform: **macOS**, **Windows 11**, **Linux**
 
 ![Protek 506](./References/Protek506Logger.png)
-
 ---
 
 ## Current Release
 
 *  Version 1.3.1
+
 ---
 
 ## Meter Setup
@@ -35,10 +35,50 @@ Prerequisite steps for displaying/logging DMM readings:
 3. Press **MENU** until the **RS232** annunciator blinks.
 4. Press **Enter** (↵) to activate RS232 mode.
 
-The **RS232** annunciator will appear, and the **RX** and **TX** annunciators will flash as data is read from the DMM.
+The **RS232** annunciator should remain ON, and the **RX** and **TX** annunciators should flash as data is read from the DMM.
 
 > **Windows physical RS-232:** You may need a **null-modem** (crossover)
 > cable if using the PC's native COM port directly.
+
+---
+
+## CSV Log Format
+
+```
+date,time,mode,reading,units
+2025-07-01,14:32:01.345,DC,12.34,V
+2025-07-01,14:32:01.547,DC,12.35,V
+```
+
+The log file is opened in **append** mode; the header row is written
+only when the file is new or empty.
+
+---
+
+## Project Structure
+
+```
+protek506wx/
+├── ChangeLog               # Version history
+├── CMakeLists.txt          # Top-level build script
+├── LICENSE                 # Software license description
+├── README.md               # This file
+├── References/
+│   ├── Protek_506_Manual.pdf   # Manual for Protek 506 DMM
+│   ├── protek_506.jpg          # Picture of a Protek 506
+│   └── Protek506Logger.png     # Screenshot of the application
+├── resources/
+│   ├── protek506.ico       # Application icon
+│   └── win32.rc            # Windows resource file
+└── src/
+    ├── App.h / App.cpp         # wxApp entry point
+    ├── MainFrame.h / .cpp      # Main application window
+    ├── ReaderThread.h / .cpp   # Background serial-polling thread
+    ├── DmmParser.h / .cpp      # Parses Protek 506 ASCII data format
+    ├── CsvLogger.h / .cpp      # CSV file writer
+    ├── Events.h.               # Events header
+    └── SerialPort.h / .cpp     # Cross-platform RS-232 wrapper
+```
 
 ---
 
@@ -167,46 +207,6 @@ cmake .. -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 ./Protek506Logger.exe
 ```
-
----
-
-## Project Structure
-
-```
-protek506wx/
-├── ChangeLog               # Version history
-├── CMakeLists.txt          # Top-level build script
-├── LICENSE                 # Software license description
-├── README.md               # This file
-├── References/
-│   ├── Protek_506_Manual.pdf   # Manual for Protek 506 DMM
-│   ├── protek_506.jpg          # Picture of a Protek 506
-│   └── Protek506Logger.png     # Screenshot of the application
-├── resources/
-│   ├── win32.rc            # Windows resource file
-│   └── protek506.ico       # Application icon
-└── src/
-    ├── App.h / App.cpp         # wxApp entry point
-    ├── MainFrame.h / .cpp      # Main application window
-    ├── ReaderThread.h / .cpp   # Background serial-polling thread
-    ├── DmmParser.h / .cpp      # Parses Protek 506 ASCII data format
-    ├── CsvLogger.h / .cpp      # CSV file writer
-    ├── Events.h.               # Events header
-    └── SerialPort.h / .cpp     # Cross-platform RS-232 wrapper
-```
-
----
-
-## CSV Log Format
-
-```
-date,time,mode,reading,units
-2025-07-01,14:32:01.345,DC,12.34,V
-2025-07-01,14:32:01.547,DC,12.35,V
-```
-
-The log file is opened in **append** mode; the header row is written
-only when the file is new or empty.
 
 ---
 
