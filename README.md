@@ -11,9 +11,8 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 
 ## Features
 
-- Auto-detects USB-to-serial adapters (FTDI, CH340, PL2303, etc.)
 - Large live reading display with colour-coded values
-- Configurable polling interval (50–5000 ms)
+- Configurable polling interval (250–60,000 ms)
 - CSV logging with automatic header; appends to existing files
 - Scrollable reading log table (last 5,000 rows kept in memory)
 - Cross-platform: **macOS**, **Windows 11**, **Linux**
