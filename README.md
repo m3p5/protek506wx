@@ -28,16 +28,13 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 
 ## Meter Setup
 
-Before connecting:
+Prerequisite steps for displaying/logging DMM readings:
 
-1. Power on the Protek 506.
-2. Press **MENU** until the **RS232** annunciator blinks.
-3. Press **Enter** (↵) to activate RS232 mode.  
+1. Connect the DB-9 RS-232 cable (or USB-serial adapter).
+2. Power on the Protek 506.
+3. Press **MENU** until the **RS232** annunciator blinks.
+4. Press **Enter** (↵) to activate RS232 mode.  
    The **RS232**, **RX**, and **TX** annunciators will appear.
-4. Connect the DB-9 RS-232 cable (or USB-serial adapter).
-
-Serial parameters (fixed, matches meter firmware):  
-`1200 baud · 7 data bits · 2 stop bits · No parity`
 
 > **Windows physical RS-232:** You may need a **null-modem** (crossover)
 > cable if using the PC's native COM port directly.
