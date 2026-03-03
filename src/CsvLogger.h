@@ -3,7 +3,10 @@
 //  Protek506Logger — CsvLogger.h
 //  Writes DMM readings to a CSV file.
 //  Header is written only when the file is new/empty.
-//  Columns: date, time, mode, reading, units
+//  Columns: date, time, mode, reading, units, raw
+//
+//  v1.4.0: Added 'raw' column — the verbatim ASCII line received
+//  from the meter (CR stripped) before any parsing.
 // ============================================================
 #include <string>
 #include <fstream>
@@ -22,7 +25,8 @@ public:
                const std::string& time,
                const std::string& mode,
                const std::string& reading,
-               const std::string& units);
+               const std::string& units,
+               const std::string& rawLine = "");
 
     // fix #12: Returns false if the last Write() failed (e.g. disk full).
     // The file is closed on error; IsOpen() will return false afterward.

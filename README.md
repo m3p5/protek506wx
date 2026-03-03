@@ -17,12 +17,13 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 - Scrollable reading log table (last 5,000 rows kept in memory)
 - Cross-platform: **macOS**, **Windows 11**, **Linux**
 
-![Protek 506](./References/Protek506Logger.png)
----
+![Protek 506 on macOS](./References/Protek506Logger-macOS.png)
+
+![Protek 506 Logger on Linux](./References/Protek506Logger-Linux.png)
 
 ## Current Release
 
-*  Version 1.3.1
+- Version 1.4.0
 
 ---
 
@@ -44,10 +45,10 @@ The **RS232** annunciator should remain ON, and the **RX** and **TX** annunciato
 
 ## CSV Log Format
 
-```
-date,time,mode,reading,units
-2025-07-01,14:32:01.345,DC,12.34,V
-2025-07-01,14:32:01.547,DC,12.35,V
+```text
+date,time,mode,reading,units,raw
+2025-07-01,14:32:01.3,DC,12.34,V,DC 12.34 V
+2025-07-01,14:32:01.5,DC,12.35,V,DC 12.35 V
 ```
 
 The log file is opened in **append** mode; the header row is written
@@ -57,16 +58,17 @@ only when the file is new or empty.
 
 ## Project Structure
 
-```
+```text
 protek506wx/
 ├── ChangeLog               # Version history
 ├── CMakeLists.txt          # Top-level build script
 ├── LICENSE                 # Software license description
 ├── README.md               # This file
 ├── References/
-│   ├── Protek_506_Manual.pdf   # Manual for Protek 506 DMM
-│   ├── protek_506.jpg          # Picture of a Protek 506
-│   └── Protek506Logger.png     # Screenshot of the application
+│   ├── Protek_506_Manual.pdf       # Manual for Protek 506 DMM
+│   ├── protek_506.jpg              # Picture of a Protek 506
+│   ├── Protek506Logger-Linux.png   # Screenshot of the application on Linux
+│   └── Protek506Logger-macOS.png   # Screenshot of the application on macOS
 ├── resources/
 │   ├── protek506.ico       # Application icon
 │   └── win32.rc            # Windows resource file
@@ -84,11 +86,11 @@ protek506wx/
 
 ## Dependencies
 
-| Dependency | Version | Notes |
-|------------|---------|-------|
-| CMake      | ≥ 3.16  | Build system |
-| wxWidgets  | ≥ 3.2   | GUI framework |
-| C++ compiler | C++17 | GCC 9+, Clang 10+, MSVC 2019+ |
+| Dependency   | Version | Notes                         |
+|--------------|---------|-------------------------------|
+| CMake        | ≥ 3.16  | Build system                  |
+| wxWidgets    | ≥ 3.2   | GUI framework                 |
+| C++ compiler | C++17   | GCC 9+, Clang 10+, MSVC 2019+ |
 
 No external serial library is required — the app uses native OS APIs
 (Win32 on Windows, POSIX termios on macOS/Linux).
@@ -213,7 +215,7 @@ make -j$(nproc)
 ## Troubleshooting
 
 | Symptom | Likely cause |
-|---------|-------------|
+| --------- | ------------- |
 | No ports listed | Driver not installed; try re-plugging adapter |
 | "Cannot open port" | Wrong port selected; port in use by another app |
 | "----" displayed, no data | RS232 mode not enabled on meter |

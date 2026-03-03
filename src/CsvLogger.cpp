@@ -29,7 +29,7 @@ bool CsvLogger::Open(const std::string& filePath)
     }
 
     if (needHeader)
-        m_file << "date,time,mode,reading,units\n";
+        m_file << "date,time,mode,reading,units,raw\n";
 
     m_file.flush();
     if (m_file.fail())
@@ -57,7 +57,8 @@ void CsvLogger::Write(const std::string& date,
                       const std::string& time,
                       const std::string& mode,
                       const std::string& reading,
-                      const std::string& units)
+                      const std::string& units,
+                      const std::string& rawLine)
 {
     if (!m_file.is_open()) return;
 
@@ -65,7 +66,8 @@ void CsvLogger::Write(const std::string& date,
            << Escape(time)    << ","
            << Escape(mode)    << ","
            << Escape(reading) << ","
-           << Escape(units)   << "\n";
+           << Escape(units)   << ","
+           << Escape(rawLine) << "\n";
     m_file.flush();
 
     // fix #12: Detect write failure (e.g. disk full) after each row.

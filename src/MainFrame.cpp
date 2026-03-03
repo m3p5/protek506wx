@@ -1,5 +1,5 @@
 // ============================================================
-//  Protek506Logger — MainFrame.cpp   (v1.3.1)
+//  Protek506Logger — MainFrame.cpp   (v1.4.0)
 // ============================================================
 #include "MainFrame.h"
 #include <wx/aboutdlg.h>
@@ -17,7 +17,7 @@
 #include <wx/settings.h>
 #include "Events.h"
 
-static const wxString APP_VERSION = "1.3.1";
+static const wxString APP_VERSION = "1.4.0";
 static const int      TIMER_MS    = 1000;
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
@@ -125,21 +125,23 @@ void MainFrame::BuildUI()
         m_lblMode->SetForegroundColour(wxColour(60, 60, 180));
         sizer->Add(m_lblMode, 0, wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 6);
 
-        m_lblReading = new wxStaticText(box, wxID_ANY, "----",
-                                        wxDefaultPosition, wxDefaultSize,
-                                        wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-        m_lblReading->SetFont(wxFont(64, wxFONTFAMILY_TELETYPE,
-                                     wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
-        m_lblReading->SetForegroundColour(wxColour(20, 160, 20));
-        sizer->Add(m_lblReading, 0, wxEXPAND | wxLEFT | wxRIGHT, 6);
+        // Reading (with units appended) centered in the group box row
+        wxBoxSizer* readingRow = new wxBoxSizer(wxHORIZONTAL);
 
-        m_lblUnits = new wxStaticText(box, wxID_ANY, "",
-                                      wxDefaultPosition, wxDefaultSize,
-                                      wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-        m_lblUnits->SetFont(wxFont(22, wxFONTFAMILY_DEFAULT,
-                                   wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-        m_lblUnits->SetForegroundColour(wxColour(100, 100, 100));
-        sizer->Add(m_lblUnits, 0, wxEXPAND | wxBOTTOM | wxLEFT | wxRIGHT, 6);
+        m_lblReading = new wxStaticText(box, wxID_ANY, "----",
+                wxDefaultPosition, wxDefaultSize,
+                wxALIGN_CENTRE_HORIZONTAL);
+        m_lblReading->SetFont(wxFont(72, wxFONTFAMILY_TELETYPE,
+                         wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
+        m_lblReading->SetForegroundColour(wxColour(20, 160, 20));
+        // ensure enough width for values like "-0.000 V" at large font size
+        m_lblReading->SetMinSize(wxSize(280, -1));
+        // center the reading group using stretchable spacers
+        readingRow->AddStretchSpacer();
+        readingRow->Add(m_lblReading, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 6);
+        readingRow->AddStretchSpacer();
+
+        sizer->Add(readingRow, 0, wxEXPAND | wxLEFT | wxRIGHT, 6);
 
         rootSizer->Add(sizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
     }
@@ -203,6 +205,7 @@ void MainFrame::BuildUI()
         m_listLog->InsertColumn(3, "Mode",    wxLIST_FORMAT_LEFT,   70);
         m_listLog->InsertColumn(4, "Reading", wxLIST_FORMAT_RIGHT, 110);
         m_listLog->InsertColumn(5, "Units",   wxLIST_FORMAT_LEFT,   90);
+        m_listLog->InsertColumn(6, "Raw",     wxLIST_FORMAT_LEFT,  160);
 
         wxBoxSizer* ps = new wxBoxSizer(wxVERTICAL);
         ps->Add(m_listLog, 1, wxEXPAND | wxALL, 2);
@@ -368,15 +371,17 @@ void MainFrame::OnDmmReading(wxCommandEvent& evt)
     wxArrayString parts = wxSplit(evt.GetString(), '|');
     if (parts.GetCount() < 5) return;
 
-    wxString date  = parts[0];
-    wxString time  = parts[1];
-    wxString mode  = parts[2];
-    wxString value = parts[3];
-    wxString units = parts[4];
+    wxString date    = parts[0];
+    wxString time    = parts[1];
+    wxString mode    = parts[2];
+    wxString value   = parts[3];
+    wxString units   = parts[4];
+    wxString rawLine = (parts.GetCount() > 5) ? parts[5] : wxString("");
 
-    // Strip a single leading zero before a non-decimal digit
-    if (value.Length() > 1 && value[0] == '0' && value[1] != '.')
-        value = value.Mid(1);
+    // NOTE: we used to strip one leading zero ("000.0" → "00.0") to
+    // make readings look neater, but that broke the invariant that the
+    // live display exactly mirrors the meter.  Keep the value verbatim so
+    // both the UI and CSV log show the same string.
 
     DisplayReading(mode, value, units);
 
@@ -384,7 +389,7 @@ void MainFrame::OnDmmReading(wxCommandEvent& evt)
 
     m_logger.Write(date.ToStdString(), time.ToStdString(),
                    mode.ToStdString(), value.ToStdString(),
-                   units.ToStdString());
+                   units.ToStdString(), rawLine.ToStdString());
 
     if (!m_logger.WriteOk())
     {
@@ -399,7 +404,7 @@ void MainFrame::OnDmmReading(wxCommandEvent& evt)
         return;
     }
 
-    AppendLogRow(date, time, mode, value, units);
+    AppendLogRow(date, time, mode, value, units, rawLine);
     ++m_readingCount;
     UpdateStatusBar();
 }
@@ -414,7 +419,6 @@ void MainFrame::OnDmmError(wxCommandEvent& evt)
     m_lblMode->SetLabel("ERROR");
     m_lblMode->SetForegroundColour(wxColour(200, 0, 0));
     m_lblReading->SetLabel("----");
-    m_lblUnits->SetLabel("");
 
     CallAfter([this, msg]() {
         if (!IsBeingDeleted())
@@ -444,8 +448,11 @@ void MainFrame::DisplayReading(const wxString& modeName,
     else if (modeName == "LOGIC") friendly = "Logic Level";
 
     m_lblMode->SetLabel(friendly);
-    m_lblReading->SetLabel(value.IsEmpty() ? "----" : value);
-    m_lblUnits->SetLabel(units);
+
+    wxString display = value.IsEmpty() ? "----" : value;
+    if (!units.IsEmpty())
+        display += " " + units;
+    m_lblReading->SetLabel(display);
 
     wxColour col(20, 160, 20);
     if (value == "OL" || value == "OPEN") col = wxColour(200, 120, 0);
@@ -464,7 +471,7 @@ void MainFrame::DisplayReading(const wxString& modeName,
 // ============================================================
 void MainFrame::AppendLogRow(const wxString& date, const wxString& time,
                               const wxString& mode, const wxString& reading,
-                              const wxString& units)
+                              const wxString& units, const wxString& rawLine)
 {
     long row = m_listLog->GetItemCount();
     if (row >= 5000)
@@ -483,6 +490,7 @@ void MainFrame::AppendLogRow(const wxString& date, const wxString& time,
     m_listLog->SetItem(idx, 3, mode);
     m_listLog->SetItem(idx, 4, reading);
     m_listLog->SetItem(idx, 5, units);
+    m_listLog->SetItem(idx, 6, rawLine);
 
     // Dark-mode-safe alternating row colours from system palette
     wxColour base   = wxSystemSettings::GetColour(wxSYS_COLOUR_LISTBOX);

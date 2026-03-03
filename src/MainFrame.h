@@ -52,7 +52,7 @@ private:
     // ---- helpers ----
     void AppendLogRow(const wxString& date, const wxString& time,
                       const wxString& mode, const wxString& reading,
-                      const wxString& units);
+                      const wxString& units, const wxString& rawLine);
     void DisplayReading(const wxString& modeName,
                         const wxString& value,
                         const wxString& units);
@@ -72,8 +72,7 @@ private:
 
     // Big reading display
     wxStaticText*  m_lblMode          = nullptr;
-    wxStaticText*  m_lblReading       = nullptr;
-    wxStaticText*  m_lblUnits         = nullptr;
+    wxStaticText*  m_lblReading       = nullptr;   // now contains units as well
 
     // Log controls
     wxButton*      m_btnToggleLog     = nullptr;

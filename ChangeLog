@@ -1,52 +1,67 @@
+# ChangeLog
+
+Version 1.4.0
+
+- Record time stamps with 0.1 second resolution in CSV log and on-screen events (was previously whole seconds).  The implementation now uses `std::chrono` rather than `wxDateTime::GetMillisecond()`, which returned zero on some platforms causing every time stamp to end in ".0".
+- Recognize the abbreviated diode mode word "DIO" in addition to the documented "DIOD"; the meter may send either sequence when in diode test mode.  Without this fix readings were discarded.
+- Stop stripping a leading zero from numeric values.  The live display now shows the exact string sent by the meter, preventing mismatches such as displaying "00.0 mA" while logging "000.0 mA".
+- Fix temperature unit display on GTK (Linux): convert the units field to wxString using explicit UTF-8 decoding (`wxString::FromUTF8()`). The multi-byte UTF-8 sequence for °C was being misinterpreted, leaving the units column blank on Linux while the display and logging worked on macOS/Windows.
+- Added a "Raw" column to the data logger to record the actual output from the DMM for each reading.
+- Made the Live Reading font slightly larger.
+
 Version 1.3.1
+
 - MainFrane.cpp - Fixed a minor issue with the GTK build that affected the "Poll (ms):" setting control.
 
 Version 1.3.0
+
 - Most of the updates in this version were to resolve a crash condition on the Linux build:
-	- On GTK3 (Ubuntu 22.04 / 24.04, wxWidgets 3.2.x), wxStaticBox is implemented as a GtkFrame containing an internal GtkBox. When ANY widget that wraps a GtkScrolledWindow (including wxListCtrl, which is backed by GtkTreeView+GtkScrolledWindow) ends up as a descendant of a GtkFrame — even two or three levels deep — GTK3's size-allocation walk corrupts internal geometry state.  The corruption is silent (no assert, no stderr output) until the first call that touches row geometry after logging starts, at which point it SIGSEGV.
-
-    The only reliable fix on GTK3 3.24 is to keep the wxListCtrl completely outside every wxStaticBox in the widget tree.
-
-    This version replaces the "Reading Log" wxStaticBox+wxStaticBoxSizer with a plain wxBoxSizer.  A bold wxStaticText provides the group-box title, and the list sits in a simple wxPanel with a sunken border — visually equivalent, zero GtkFrame involvement. All other group boxes (Serial Port, Live Reading, CSV Logging) continue to use wxStaticBox because they contain only simple widgets (buttons, text controls, choice, spin) that are safe inside a GtkFrame.
+  - On GTK3 (Ubuntu 22.04 / 24.04, wxWidgets 3.2.x), wxStaticBox is implemented as a GtkFrame containing an internal GtkBox. When ANY widget that wraps a GtkScrolledWindow (including wxListCtrl, which is backed by GtkTreeView+GtkScrolledWindow) ends up as a descendant of a GtkFrame — even two or three levels deep — GTK3's size-allocation walk corrupts internal geometry state.  The corruption is silent (no assert, no stderr output) until the first call that touches row geometry after logging starts, at which point it SIGSEGV. The only reliable fix on GTK3 3.24 is to keep the wxListCtrl completely outside every wxStaticBox in the widget tree. This version replaces the "Reading Log" wxStaticBox+wxStaticBoxSizer with a plain wxBoxSizer.  A bold wxStaticText provides the group-box title, and the list sits in a simple wxPanel with a sunken border — visually equivalent, zero GtkFrame involvement. All other group boxes (Serial Port, Live Reading, CSV Logging) continue to use wxStaticBox because they contain only simple widgets (buttons, text controls, choice, spin) that are safe inside a GtkFrame.
 
 Version 1.2.3
+
 - MainFrame.cpp - Another fix to resolve a crash condition on Linux:
-	- (Critical): In BuildUI(), the parent argument for every child widget created inside a wxStaticBoxSizer was changed from root to the appropriate wxStaticBox variable: connBox, readBox, logCtrlBox, or tableBox. The four wxStaticBox objects themselves remain correctly parented to root. The Freeze/Thaw workaround was removed since it addressed only a symptom and is no longer necessary. This is the correct fix on macOS and Windows too — while those platforms don't crash, having the right parent is the specified behaviour.
+  - (Critical): In BuildUI(), the parent argument for every child widget created inside a wxStaticBoxSizer was changed from root to the appropriate wxStaticBox variable: connBox, readBox, logCtrlBox, or tableBox. The four wxStaticBox objects themselves remain correctly parented to root. The Freeze/Thaw workaround was removed since it addressed only a symptom and is no longer necessary. This is the correct fix on macOS and Windows too — while those platforms don't crash, having the right parent is the specified behaviour.
 
 Version 1.2.2
+
 - MainFrame.cpp - One fix to resolve a crash condition on Linux:
-	- (Critical): SetConnected() batch layout: Wrap all the Enable() calls in a Freeze()/Thaw() pair on the parent panel. This suppresses the intermediate GTK size-allocation callbacks until all widget states are set, preventing the layout from ever seeing a partially-updated state with a zero-width spin button.
+  - (Critical): SetConnected() batch layout: Wrap all the Enable() calls in a Freeze()/Thaw() pair on the parent panel. This suppresses the intermediate GTK size-allocation callbacks until all widget states are set, preventing the layout from ever seeing a partially-updated state with a zero-width spin button.
 
 Version 1.2.1
+
 - MainFrame.cpp - Two small changes:
-	- OnToggleLog() — m_readingCount is reset to 0 when the user clicks "Start Logging", so the first row written gets #1. Restarting logging after a stop also resets to #1.
-	- OnDmmReading() — ++m_readingCount is now inside the if (m_logging) block alongside AppendLogRow(). While connected but not logging, the count stays at 0 and the status bar shows Readings: 0. The "Clear Table" reset (already inside OnClearLog) was already correct and is untouched.
+  - OnToggleLog() — m_readingCount is reset to 0 when the user clicks "Start Logging", so the first row written gets #1. Restarting logging after a stop also resets to #1.
+  - OnDmmReading() — ++m_readingCount is now inside the if (m_logging) block alongside AppendLogRow(). While connected but not logging, the count stays at 0 and the status bar shows Readings: 0. The "Clear Table" reset (already inside OnClearLog) was already correct and is untouched.
 
 Version 1.2.0
+
 - MainFrame.cpp / MainFrame.h - three feature improvements:
-	- INI persistence. wxFileConfig is used, pointing to Protek506Logger.ini in the platform-appropriate user data directory (~/.config/Protek506Logger/ on macOS/Linux, %APPDATA%\Protek506Logger\ on Windows). The directory is created automatically if it doesn't exist. Two keys are persisted: /Serial/LastPort (the device string, e.g. /dev/cu.usbserial-FTDHR9A3) and /Logging/LastFile (the CSV path). LoadSettings() is called at the end of the constructor after UpdatePortList() so the port list is already populated before we try to re-select a match. SaveSettings() is called on Connect (port confirmed working), on Browse (new file path chosen), and on window Close (catches any changes made during the session).
-	- Log-only-while-logging. The AppendLogRow() call is now wrapped in if (m_logging). The DisplayReading() call (the big live readout at the top) remains unconditional — you still see live data while connected, but the Reading Log table only accumulates rows when "Start Logging" has been pressed. Rows stop being added the moment you click "Stop Logging", and resume the instant you click it again.
-	- Dark mode list colors. The hardcoded wxColour(245,248,255) and *wxWHITE backgrounds are replaced with colours derived from wxSystemSettings::GetColour(). The base row colour is wxSYS_COLOUR_LISTBOX (the list's natural background in the current OS appearance) and the text colour is wxSYS_COLOUR_LISTBOXTEXT (always legible regardless of theme). The alternating stripe is computed by blending the list background 65%/35% with wxSYS_COLOUR_WINDOW, which gives a subtle visual separation that works in both light and dark mode without ever producing invisible text. On macOS Dark mode this produces dark-grey alternating rows with white text; on Light mode it produces near-white with a faint blue-grey stripe.
+  - INI persistence. wxFileConfig is used, pointing to Protek506Logger.ini in the platform-appropriate user data directory (~/.config/Protek506Logger/ on macOS/Linux, %APPDATA%\Protek506Logger\ on Windows). The directory is created automatically if it doesn't exist. Two keys are persisted: /Serial/LastPort (the device string, e.g. /dev/cu.usbserial-FTDHR9A3) and /Logging/LastFile (the CSV path). LoadSettings() is called at the end of the constructor after UpdatePortList() so the port list is already populated before we try to re-select a match. SaveSettings() is called on Connect (port confirmed working), on Browse (new file path chosen), and on window Close (catches any changes made during the session).
+  - Log-only-while-logging. The AppendLogRow() call is now wrapped in if (m_logging). The DisplayReading() call (the big live readout at the top) remains unconditional — you still see live data while connected, but the Reading Log table only accumulates rows when "Start Logging" has been pressed. Rows stop being added the moment you click "Stop Logging", and resume the instant you click it again.
+  - Dark mode list colors. The hardcoded wxColour(245,248,255) and *wxWHITE backgrounds are replaced with colours derived from wxSystemSettings::GetColour(). The base row colour is wxSYS_COLOUR_LISTBOX (the list's natural background in the current OS appearance) and the text colour is wxSYS_COLOUR_LISTBOXTEXT (always legible regardless of theme). The alternating stripe is computed by blending the list background 65%/35% with wxSYS_COLOUR_WINDOW, which gives a subtle visual separation that works in both light and dark mode without ever producing invisible text. On macOS Dark mode this produces dark-grey alternating rows with white text; on Light mode it produces near-white with a faint blue-grey stripe.
 
 Version 1.1.0
+
 - ReaderThread.h / ReaderThread.cpp — three fixes:
-	- (Critical): m_stop changed from bool to std::atomic<bool>. The plain bool was a C++ data race — undefined behaviour when the main thread writes and the worker thread reads concurrently without synchronisation.
-	- (Critical): Thread changed from wxTHREAD_DETACHED to wxTHREAD_JOINABLE. StopReaderThread() now calls RequestStop() then Wait() before nulling the pointer, guaranteeing the thread has fully exited before the sink window can be destroyed. The detached design allowed wxQueueEvent to be called on a dangling wxEvtHandler*.
-	- (Medium): Entry() now checks m_serial.LastError() after an empty ReadLine() return, and posts EVT_DMM_ERROR + breaks the loop on a genuine I/O error rather than silently continuing. A mere timeout (empty line, empty error string) still polls normally.
-	
+  - (Critical): m_stop changed from bool to std::atomic'bool'. The plain bool was a C++ data race — undefined behaviour when the main thread writes and the worker thread reads concurrently without synchronisation.
+  - (Critical): Thread changed from wxTHREAD_DETACHED to wxTHREAD_JOINABLE. StopReaderThread() now calls RequestStop() then Wait() before nulling the pointer, guaranteeing the thread has fully exited before the sink window can be destroyed. The detached design allowed wxQueueEvent to be called on a dangling wxEvtHandler*.
+  - (Medium): Entry() now checks m_serial.LastError() after an empty ReadLine() return, and posts EVT_DMM_ERROR + breaks the loop on a genuine I/O error rather than silently continuing. A mere timeout (empty line, empty error string) still polls normally.
+
 - DmmParser.cpp — three fixes:
-	- (High): Parse() now does clean.substr(2) instead of clean.substr(1). The manual's data format table (section 8, page 45) shows byte 1 is the mode code and byte 2 is always a sub-range/function qualifier. Passing byte 2 into the value parser caused every numeric reading to start with a spurious letter like 'C' or 'E'.
-	- (Medium): The std::regex is now static const with the optimize flag, compiled once at first call rather than on every Parse() invocation.
-	- (Medium): Logic-level detection replaced find("Hi") / find("HIGH") substring searches with CiEquals() whole-string comparisons. This prevents false positives where "kHz", "MHz", or other unit strings containing those letter sequences were misidentified as logic High/Low.
+  - (High): Parse() now does clean.substr(2) instead of clean.substr(1). The manual's data format table (section 8, page 45) shows byte 1 is the mode code and byte 2 is always a sub-range/function qualifier. Passing byte 2 into the value parser caused every numeric reading to start with a spurious letter like 'C' or 'E'.
+  - (Medium): The std::regex is now static const with the optimize flag, compiled once at first call rather than on every Parse() invocation.
+  - (Medium): Logic-level detection replaced find("Hi") / find("HIGH") substring searches with CiEquals() whole-string comparisons. This prevents false positives where "kHz", "MHz", or other unit strings containing those letter sequences were misidentified as logic High/Low.
 
 - SerialPort.h / SerialPort.cpp — one fix plus supporting fix to Entry() issue above:
-	- (Medium): POSIX Open() now sets VMIN=0, VTIME=0 (fully non-blocking reads) and stores timeoutMs in m_timeoutMs. ReadLine() is rewritten to use select() with the full configured timeout for each byte wait. The old VTIME-based approach timed out independently on every read() call, so a slow first byte from the 1200-baud meter would cause the function to return empty before the response arrived. A clean timeout now leaves m_lastError empty; genuine I/O errors set it — enabling the distinction required by fix #3.
-	- (Medium): Both Windows and POSIX ReadLine() now call m_lastError.clear() at entry so stale errors don't confuse the I/O-error detection in ReaderThread.
+  - (Medium): POSIX Open() now sets VMIN=0, VTIME=0 (fully non-blocking reads) and stores timeoutMs in m_timeoutMs. ReadLine() is rewritten to use select() with the full configured timeout for each byte wait. The old VTIME-based approach timed out independently on every read() call, so a slow first byte from the 1200-baud meter would cause the function to return empty before the response arrived. A clean timeout now leaves m_lastError empty; genuine I/O errors set it — enabling the distinction required by fix #3.
+  - (Medium): Both Windows and POSIX ReadLine() now call m_lastError.clear() at entry so stale errors don't confuse the I/O-error detection in ReaderThread.
 
 - MainFrame.cpp - three fixes
-	- (Critical): StopReaderThread() updated to call m_thread->Wait() then delete m_thread instead of simply nulling the pointer.
-	- (Medium): The CallAfter lambda in OnDmmError() now guards with if (IsBeingDeleted()) return; at its start. IsBeingDeleted() is safe to call on the main thread and correctly handles the race where the window is closed between when the error event is posted and when CallAfter fires.
-	- (Medium): OnDmmReading() checks m_logger.IsOpen() after each Write() call; if the logger has auto-closed on error, logging is stopped and the user is notified via a CallAfter message box (also guarded with IsBeingDeleted()).
+  - (Critical): StopReaderThread() updated to call m_thread->Wait() then delete m_thread instead of simply nulling the pointer.
+  - (Medium): The CallAfter lambda in OnDmmError() now guards with if (IsBeingDeleted()) return; at its start. IsBeingDeleted() is safe to call on the main thread and correctly handles the race where the window is closed between when the error event is posted and when CallAfter fires.
+  - (Medium): OnDmmReading() checks m_logger.IsOpen() after each Write() call; if the logger has auto-closed on error, logging is stopped and the user is notified via a CallAfter message box (also guarded with IsBeingDeleted()).
 
 Version 1.0.0
+
 - Initial Working Release.

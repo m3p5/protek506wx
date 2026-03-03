@@ -14,7 +14,7 @@
 //    "AC"   AC voltage / current
 //    "RES"  Resistance
 //    "BUZ"  Continuity (buzzer mode)
-//    "DIOD" Diode test
+//    "DIOD" or "DIO" Diode test
 //    "LOG"  Logic level
 //    "FR"   Frequency
 //    "CAP"  Capacitance
@@ -50,6 +50,8 @@ static const struct { const char* word; const char* friendly; } s_modes[] =
     { "AC",   "AC"          },
     { "RES",  "RES"         },
     { "BUZ",  "CONT"        },   // continuity / buzzer
+    // Some firmware emits "DIO" while others send the full "DIOD".
+    { "DIO",  "DIODE"       },
     { "DIOD", "DIODE"       },
     { "LOG",  "LOGIC"       },
     { "FR",   "FREQ"        },

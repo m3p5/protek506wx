@@ -16,7 +16,7 @@
 //    AC    AC voltage or current
 //    RES   Resistance
 //    BUZ   Continuity (buzzer)
-//    DIOD  Diode test
+//    DIOD  Diode test (some firmware reports the word as "DIO")
 //    LOG   Logic level
 //    FR    Frequency
 //    CAP   Capacitance

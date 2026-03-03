@@ -3,6 +3,7 @@
 // ============================================================
 #include "ReaderThread.h"
 #include <wx/datetime.h>
+#include <chrono>          // for high-resolution timestamping
 #include "Events.h"
 
 // === DEFINE THE EVENTS HERE (only once, in this file) ===
@@ -11,6 +12,11 @@ wxDEFINE_EVENT(EVT_DMM_ERROR,   wxCommandEvent);
 
 // ----------------------------------------------------------------
 // Pack reading into a pipe-delimited string.
+//
+// Time resolution: historically we logged only to the second via
+// FormatISOTime(), but users want tenths of a second when recording
+// fast-changing measurements.  `PackReading` now appends a decimal
+// digit derived from the millisecond counter.
 //
 // FIX (macOS + Linux column bug):
 //   The original code used FormatISOCombined() which produced ONE
@@ -24,19 +30,45 @@ wxDEFINE_EVENT(EVT_DMM_ERROR,   wxCommandEvent);
 //
 //   Fix: split the timestamp into date and time before packing, use
 //   exactly five fields, and drop rawLine (the receiver never used it).
+//
+// v1.4.0: Added rawLine as the 6th field so the receiver can log
+//   and display the verbatim ASCII line received from the meter.
 // ----------------------------------------------------------------
 static wxString PackReading(const DmmReading& r)
 {
     wxDateTime now  = wxDateTime::Now();
     wxString   date = now.FormatISODate();   // e.g. "2026-02-26"
-    wxString   time = now.FormatISOTime();   // e.g. "15:30:45"
 
-    return wxString::Format("%s|%s|%s|%s|%s",
+    // wxDateTime apparently only reports whole-second precision on some
+    // platforms (macOS build showed GetMillisecond()==0 every call), which
+    // produced a misleading ".0" digit for every timestamp.  Avoid
+    // reliance on its millisecond field and instead grab the current time
+    // via std::chrono for sub-second accuracy.
+    using namespace std::chrono;
+    system_clock::time_point tp = system_clock::now();
+    auto ms_total = duration_cast<milliseconds>(tp.time_since_epoch()).count();
+    int tenth = static_cast<int>((ms_total / 100) % 10);   // 0..9
+
+    // Convert tp to local calendar time for the HH:MM:SS portion.
+    std::time_t t = system_clock::to_time_t(tp);
+    std::tm tm_local;
+#if defined(_WIN32) || defined(__WINDOWS__)
+    localtime_s(&tm_local, &t);
+#else
+    localtime_r(&t, &tm_local);
+#endif
+    char buf[16]; // "HH:MM:SS" fits in 9 + null
+    std::strftime(buf, sizeof(buf), "%H:%M:%S", &tm_local);
+    wxString time = wxString::FromUTF8(buf) +
+                      wxString::Format(".%d", tenth);    // e.g. "15:30:45.3"
+
+    return wxString::Format("%s|%s|%s|%s|%s|%s",
         date,
         time,
         wxString(r.modeName),
         wxString(r.rawValue),
-        wxString(r.units));
+        wxString::FromUTF8(r.units.c_str()),
+        wxString::FromUTF8(r.rawLine.c_str()));
 }
 
 // ----------------------------------------------------------------
