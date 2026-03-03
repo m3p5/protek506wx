@@ -18,7 +18,6 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 - Cross-platform: **macOS**, **Windows 11**, **Linux**
 
 ![Protek 506 on macOS](./References/Protek506Logger-macOS.png)
-
 ![Protek 506 Logger on Linux](./References/Protek506Logger-Linux.png)
 
 ## Current Release
