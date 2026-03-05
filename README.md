@@ -17,8 +17,14 @@ Built with **C++ 17** and **wxWidgets 3.2+**.
 - Scrollable reading log table (last 5,000 rows kept in memory)
 - Cross-platform: **macOS**, **Windows 11**, **Linux**
 
+---
+
+## Screenshots
+
 ![Protek 506 on macOS](./References/Protek506Logger-macOS.png)
 ![Protek 506 Logger on Linux](./References/Protek506Logger-Linux.png)
+
+---
 
 ## Current Release
 
