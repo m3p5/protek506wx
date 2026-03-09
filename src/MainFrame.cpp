@@ -17,7 +17,7 @@
 #include <wx/settings.h>
 #include "Events.h"
 
-static const wxString APP_VERSION = "1.4.0";
+static const wxString APP_VERSION = "1.4.1";
 static const int      TIMER_MS    = 1000;
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
@@ -614,14 +614,21 @@ void MainFrame::OnClose(wxCloseEvent& evt)
 // ============================================================
 void MainFrame::BuildMenuBar()
 {
+    wxMenuBar* bar = new wxMenuBar;
+
+#ifndef __WXMAC__
+    // On macOS, wxID_EXIT is moved automatically to the application menu,
+    // leaving the File menu empty — so we omit it on that platform.
     wxMenu* fileMenu = new wxMenu;
     fileMenu->Append(wxID_EXIT, "E&xit\tCtrl+Q");
+    bar->Append(fileMenu, "&File");
+#endif
 
     wxMenu* helpMenu = new wxMenu;
     helpMenu->Append(wxID_ABOUT, "&About...");
-
-    wxMenuBar* bar = new wxMenuBar;
-    bar->Append(fileMenu, "&File");
+    // On macOS, wxID_ABOUT is also relocated to the application menu;
+    // the Help menu keeps the system search field, which is correct HIG behaviour.
     bar->Append(helpMenu, "&Help");
+
     SetMenuBar(bar);
 }

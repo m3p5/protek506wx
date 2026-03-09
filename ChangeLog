@@ -1,5 +1,9 @@
 # ChangeLog
 
+Version 1.4.1
+
+- macOS menu bar: the File menu (containing only Exit) and the About item in the Help menu are now hidden on macOS. wxWidgets automatically relocates `wxID_EXIT` and `wxID_ABOUT` to the application menu ("Protek 506 Logger"), leaving both menus empty or near-empty. The File menu is now suppressed entirely on macOS via `#ifndef __WXMAC__`; the Help menu remains visible with the system search field, which is correct Apple HIG behaviour.
+
 Version 1.4.0
 
 - Record time stamps with 0.1 second resolution in CSV log and on-screen events (was previously whole seconds).  The implementation now uses `std::chrono` rather than `wxDateTime::GetMillisecond()`, which returned zero on some platforms causing every time stamp to end in ".0".
