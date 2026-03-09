@@ -1,5 +1,5 @@
 // ============================================================
-//  Protek506Logger — MainFrame.cpp   (v1.4.0)
+//  Protek506Logger — MainFrame.cpp
 // ============================================================
 #include "MainFrame.h"
 #include <wx/aboutdlg.h>
