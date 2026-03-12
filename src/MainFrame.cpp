@@ -17,7 +17,7 @@
 #include <wx/settings.h>
 #include "Events.h"
 
-static const wxString APP_VERSION = "1.4.1";
+static const wxString APP_VERSION = "1.5.0";
 static const int      TIMER_MS    = 1000;
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
@@ -27,6 +27,7 @@ wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
     EVT_BUTTON(ID_CHOOSE_FILE,   MainFrame::OnChooseLogFile)
     EVT_BUTTON(ID_CLEAR_LOG,     MainFrame::OnClearLog)
     EVT_BUTTON(ID_REFRESH_PORTS, MainFrame::OnRefreshPorts)
+    EVT_BUTTON(ID_TOGGLE_STATS,  MainFrame::OnToggleStats)
     EVT_MENU(wxID_EXIT,          MainFrame::OnExit)
     EVT_MENU(wxID_ABOUT,         MainFrame::OnAbout)
     EVT_CLOSE(                   MainFrame::OnClose)
@@ -115,7 +116,51 @@ void MainFrame::BuildUI()
     // ----------------------------------------------------------
     {
         wxStaticBox*      box   = new wxStaticBox(root, wxID_ANY, "Live Reading");
-        wxStaticBoxSizer* sizer = new wxStaticBoxSizer(box, wxVERTICAL);
+        // Horizontal outer sizer: stats column on left, mode+reading column on right.
+        // This lets the stats stack start at the very top of the content area so
+        // it sits alongside both the mode label and the reading value.
+        wxStaticBoxSizer* sizer = new wxStaticBoxSizer(box, wxHORIZONTAL);
+
+        // --- Left column: stats sub-sizer (hidden until stat-eligible mode) ---
+        m_statsSizer = new wxBoxSizer(wxVERTICAL);
+
+        m_btnStats = new wxButton(box, ID_TOGGLE_STATS, "Start",
+                                  wxDefaultPosition, wxSize(60, -1));
+        m_statsSizer->Add(m_btnStats, 0, wxALIGN_CENTER_HORIZONTAL | wxBOTTOM, 6);
+
+        {
+            wxFont lf(14, wxFONTFAMILY_DEFAULT,
+                      wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+            wxFont vf(14, wxFONTFAMILY_TELETYPE,
+                      wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+
+            auto addRow = [&](const char* label, wxStaticText*& valOut) {
+                wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
+                wxStaticText* l = new wxStaticText(box, wxID_ANY, label,
+                                         wxDefaultPosition, wxSize(78, -1),
+                                         wxST_NO_AUTORESIZE);
+                l->SetFont(lf);
+                valOut = new wxStaticText(box, wxID_ANY, "---",
+                                         wxDefaultPosition, wxSize(90, -1),
+                                         wxST_NO_AUTORESIZE);
+                valOut->SetFont(vf);
+                row->Add(l,      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+                row->Add(valOut, 0, wxALIGN_CENTER_VERTICAL);
+                m_statsSizer->Add(row, 0, wxEXPAND | wxBOTTOM, 3);
+            };
+
+            addRow("Maximum", m_lblMaxVal);
+            addRow("Average", m_lblAvgVal);
+            addRow("Minimum", m_lblMinVal);
+        }
+
+        // m_readingRow points to the direct parent of m_statsSizer for show/hide
+        m_readingRow = sizer;
+        sizer->Add(m_statsSizer, 0, wxALIGN_TOP | wxLEFT | wxTOP, 8);
+        sizer->Show(m_statsSizer, false);  // hidden until stat mode active
+
+        // --- Right column: mode label above the reading value ---
+        wxBoxSizer* rightCol = new wxBoxSizer(wxVERTICAL);
 
         m_lblMode = new wxStaticText(box, wxID_ANY, "---",
                                      wxDefaultPosition, wxDefaultSize,
@@ -123,25 +168,21 @@ void MainFrame::BuildUI()
         m_lblMode->SetFont(wxFont(16, wxFONTFAMILY_DEFAULT,
                                   wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
         m_lblMode->SetForegroundColour(wxColour(60, 60, 180));
-        sizer->Add(m_lblMode, 0, wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 6);
+        rightCol->Add(m_lblMode, 0, wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 6);
 
-        // Reading (with units appended) centered in the group box row
-        wxBoxSizer* readingRow = new wxBoxSizer(wxHORIZONTAL);
-
+        // Reading value: fills the full width of the right column.
+        // wxALIGN_CENTRE_HORIZONTAL on the widget centers the text within that
+        // space, so no separate stretch-spacer row is needed and there is no
+        // fixed-width cap that could clip long values such as "-0.000 V".
         m_lblReading = new wxStaticText(box, wxID_ANY, "----",
                 wxDefaultPosition, wxDefaultSize,
-                wxALIGN_CENTRE_HORIZONTAL);
+                wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
         m_lblReading->SetFont(wxFont(72, wxFONTFAMILY_TELETYPE,
                          wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
         m_lblReading->SetForegroundColour(wxColour(20, 160, 20));
-        // ensure enough width for values like "-0.000 V" at large font size
-        m_lblReading->SetMinSize(wxSize(280, -1));
-        // center the reading group using stretchable spacers
-        readingRow->AddStretchSpacer();
-        readingRow->Add(m_lblReading, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 6);
-        readingRow->AddStretchSpacer();
+        rightCol->Add(m_lblReading, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 6);
 
-        sizer->Add(readingRow, 0, wxEXPAND | wxLEFT | wxRIGHT, 6);
+        sizer->Add(rightCol, 1, wxEXPAND);
 
         rootSizer->Add(sizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
     }
@@ -435,6 +476,9 @@ void MainFrame::DisplayReading(const wxString& modeName,
                                const wxString& value,
                                const wxString& units)
 {
+    m_currentMode  = modeName;
+    m_currentUnits = units;
+
     wxString friendly = modeName;
     if      (modeName == "DC")    friendly = "DC Voltage / Current";
     else if (modeName == "AC")    friendly = "AC Voltage / Current";
@@ -462,8 +506,108 @@ void MainFrame::DisplayReading(const wxString& modeName,
     m_lblReading->SetForegroundColour(col);
     m_lblMode->SetForegroundColour(wxColour(60, 60, 180));
 
-    m_lblReading->GetParent()->Layout();
-    m_lblReading->GetParent()->Refresh();
+    // Show/hide stats group based on whether this mode supports stats.
+    // Controlled at the sizer level so all child widgets participate correctly
+    // in layout (avoids wxPanel-inside-wxStaticBox sizing issues on macOS).
+    bool isStat = IsStatMode(modeName);
+    if (m_readingRow->IsShown(m_statsSizer) != isStat)
+        m_readingRow->Show(m_statsSizer, isStat);
+
+    // If mode became non-stat while accumulating, stop cleanly
+    if (!isStat && m_statsRunning)
+    {
+        m_statsRunning = false;
+        m_btnStats->SetLabel("Start");
+    }
+
+    // If stats are running and the mode or measurement range changed, stop and reset.
+    // The context is "mode|units", which naturally distinguishes DC→AC, V↔mV, A↔mA↔µA, etc.
+    if (m_statsRunning && isStat)
+    {
+        wxString ctx = modeName + "|" + units;
+        if (ctx != m_statsContext)
+        {
+            m_statsRunning = false;
+            m_statsCount   = 0;
+            m_statsSum     = 0.0;
+            m_statsMin     = 0.0;
+            m_statsMax     = 0.0;
+            m_lblMaxVal->SetLabel("---");
+            m_lblAvgVal->SetLabel("---");
+            m_lblMinVal->SetLabel("---");
+            m_btnStats->SetLabel("Start");
+        }
+    }
+
+    // Accumulate min/avg/max if running
+    if (m_statsRunning && isStat)
+    {
+        double dval;
+        if (value.ToDouble(&dval))
+        {
+            if (m_statsCount == 0)
+            {
+                m_statsMin = dval;
+                m_statsMax = dval;
+            }
+            else
+            {
+                if (dval < m_statsMin) m_statsMin = dval;
+                if (dval > m_statsMax) m_statsMax = dval;
+            }
+            m_statsSum += dval;
+            ++m_statsCount;
+            UpdateStatsDisplay();
+        }
+    }
+
+    // box (GetParent()) has no sizer of its own; the sizer lives on root
+    // (GetParent()->GetParent()), so Layout() must be called there.
+    wxWindow* root = m_lblReading->GetParent()->GetParent();
+    root->Layout();
+    root->Refresh();
+}
+
+// ============================================================
+// Stats panel helpers
+// ============================================================
+bool MainFrame::IsStatMode(const wxString& modeName) const
+{
+    return modeName == "DC"  || modeName == "AC"  ||
+           modeName == "RES" || modeName == "TEMP" ||
+           modeName == "CAP" || modeName == "IND";
+}
+
+void MainFrame::OnToggleStats(wxCommandEvent&)
+{
+    if (!m_statsRunning)
+    {
+        m_statsRunning = true;
+        m_statsContext = m_currentMode + "|" + m_currentUnits;
+        m_statsCount   = 0;
+        m_statsSum     = 0.0;
+        m_statsMin     = 0.0;
+        m_statsMax     = 0.0;
+        m_lblMaxVal->SetLabel("---");
+        m_lblAvgVal->SetLabel("---");
+        m_lblMinVal->SetLabel("---");
+        m_btnStats->SetLabel("Stop");
+    }
+    else
+    {
+        m_statsRunning = false;
+        m_btnStats->SetLabel("Start");
+        // Last computed values remain displayed until Start is clicked again
+    }
+}
+
+void MainFrame::UpdateStatsDisplay()
+{
+    if (m_statsCount == 0) return;
+    double avg = m_statsSum / static_cast<double>(m_statsCount);
+    m_lblMaxVal->SetLabel(wxString::Format("%.6g", m_statsMax));
+    m_lblAvgVal->SetLabel(wxString::Format("%.3f", avg));
+    m_lblMinVal->SetLabel(wxString::Format("%.6g", m_statsMin));
 }
 
 // ============================================================

@@ -57,6 +57,9 @@ private:
                         const wxString& value,
                         const wxString& units);
     void StopReaderThread();
+    void OnToggleStats(wxCommandEvent& evt);
+    void UpdateStatsDisplay();
+    bool IsStatMode(const wxString& modeName) const;
 
     // ---- INI persistence ----
     void SaveSettings();
@@ -73,6 +76,14 @@ private:
     // Big reading display
     wxStaticText*  m_lblMode          = nullptr;
     wxStaticText*  m_lblReading       = nullptr;   // now contains units as well
+
+    // Stats display (shown only in stat-eligible modes)
+    wxSizer*       m_readingRow       = nullptr;  // parent of m_statsSizer (for show/hide)
+    wxBoxSizer*    m_statsSizer       = nullptr;  // sub-sizer shown/hidden as a unit
+    wxButton*      m_btnStats         = nullptr;
+    wxStaticText*  m_lblMaxVal        = nullptr;
+    wxStaticText*  m_lblAvgVal        = nullptr;
+    wxStaticText*  m_lblMinVal        = nullptr;
 
     // Log controls
     wxButton*      m_btnToggleLog     = nullptr;
@@ -92,6 +103,16 @@ private:
     long           m_readingCount     = 0;
     wxString       m_lastRawLine;
 
+    // Stats accumulation state
+    bool           m_statsRunning     = false;
+    double         m_statsMin         = 0.0;
+    double         m_statsMax         = 0.0;
+    double         m_statsSum         = 0.0;
+    long           m_statsCount       = 0;
+    wxString       m_currentMode;          // mode name from last reading
+    wxString       m_currentUnits;         // units from last reading
+    wxString       m_statsContext;         // mode|units snapshot taken when stats were started
+
     wxDECLARE_EVENT_TABLE();
 };
 
@@ -105,4 +126,5 @@ enum
     ID_CLEAR_LOG,
     ID_REFRESH_PORTS,
     ID_TIMER,
+    ID_TOGGLE_STATS,
 };

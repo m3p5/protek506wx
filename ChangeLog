@@ -1,5 +1,9 @@
 # ChangeLog
 
+Version 1.5.0
+
+- Added MAX/AVG/MIN statistics panel to the Live Reading display. A "Start" button appears to the left of the live value whenever the meter is in a stat-eligible mode (DC, AC, Resistance, Temperature, Capacitance, or Inductance). Clicking Start begins accumulating the maximum, average, and minimum values across each incoming reading; the button relabels to "Stop". Clicking Stop freezes the displayed values until Start is clicked again. The panel is hidden automatically for non-numeric modes (Frequency, Diode, Continuity, Logic Level).
+
 Version 1.4.1
 
 - macOS menu bar: the File menu (containing only Exit) and the About item in the Help menu are now hidden on macOS. wxWidgets automatically relocates `wxID_EXIT` and `wxID_ABOUT` to the application menu ("Protek 506 Logger"), leaving both menus empty or near-empty. The File menu is now suppressed entirely on macOS via `#ifndef __WXMAC__`; the Help menu remains visible with the system search field, which is correct Apple HIG behaviour.
