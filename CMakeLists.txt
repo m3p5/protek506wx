@@ -19,7 +19,7 @@ if(APPLE)
 endif()
 
 # Version kept in sync with APP_VERSION in MainFrame.cpp
-project(Protek506Logger VERSION 1.5.0 LANGUAGES CXX)
+project(Protek506Logger VERSION 1.5.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

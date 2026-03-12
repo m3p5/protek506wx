@@ -1,5 +1,9 @@
 # ChangeLog
 
+Version 1.5.1
+
+- Fixed stats label clipping on Linux (GTK): increased the fixed width of the "Maximum", "Average", and "Minimum" label column from 78 to 90 px. GTK font metrics render bold text slightly wider than on macOS/Windows, causing the rightmost characters to be clipped.
+
 Version 1.5.0
 
 - Added MAX/AVG/MIN statistics panel to the Live Reading display. A "Start" button appears to the left of the live value whenever the meter is in a stat-eligible mode (DC, AC, Resistance, Temperature, Capacitance, or Inductance). Clicking Start begins accumulating the maximum, average, and minimum values across each incoming reading; the button relabels to "Stop". Clicking Stop freezes the displayed values until Start is clicked again. The panel is hidden automatically for non-numeric modes (Frequency, Diode, Continuity, Logic Level).
