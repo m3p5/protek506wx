@@ -17,7 +17,7 @@
 #include <wx/settings.h>
 #include "Events.h"
 
-static const wxString APP_VERSION = "1.5.1";
+static const wxString APP_VERSION = "1.5.2";
 static const int      TIMER_MS    = 1000;
 
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
@@ -137,14 +137,14 @@ void MainFrame::BuildUI()
             auto addRow = [&](const char* label, wxStaticText*& valOut) {
                 wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
                 wxStaticText* l = new wxStaticText(box, wxID_ANY, label,
-                                         wxDefaultPosition, wxSize(90, -1),
+                                         wxDefaultPosition, wxSize(94, -1),
                                          wxST_NO_AUTORESIZE);
                 l->SetFont(lf);
                 valOut = new wxStaticText(box, wxID_ANY, "---",
                                          wxDefaultPosition, wxSize(90, -1),
                                          wxST_NO_AUTORESIZE);
                 valOut->SetFont(vf);
-                row->Add(l,      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+                row->Add(l,      0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
                 row->Add(valOut, 0, wxALIGN_CENTER_VERTICAL);
                 m_statsSizer->Add(row, 0, wxEXPAND | wxBOTTOM, 3);
             };

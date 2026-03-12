@@ -1,5 +1,9 @@
 # ChangeLog
 
+Version 1.5.2
+
+- Increased spacing between stats label and value columns from 4 to 8 px for improved readability.
+
 Version 1.5.1
 
 - Fixed stats label clipping on Linux (GTK): increased the fixed width of the "Maximum", "Average", and "Minimum" label column from 78 to 90 px. GTK font metrics render bold text slightly wider than on macOS/Windows, causing the rightmost characters to be clipped.
